@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>LAN Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h1 id="LAN">LAN Chat</h1>
+
+  <div id="container">
+    <div id="sidebar">
+      <h2>Users</h2>
+      <ul id="users"></ul>
+
+      <button id="settings-btn">⚙ Settings</button>
+      <div id="settings-panel" style="display: none;">
+        <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />
+        <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
+        <br>
+        <label>
+          <input type="checkbox" id="toggle-file-links" />
+          Show files
+        </label>
+        <br>
+        <label>
+          <input type="checkbox" id="toggle-post-files" />
+          Post files
+        </label>
+
+
+      </div>
+    </div>
+
+    <div id="main-chat">
+      <div id="chat" class="chat-box"></div>
+
+      <div class="input-area">
+        <textarea id="msg" placeholder="Type your message..."></textarea>
+        <button id="send">Send</button>
+        <button id="code">Code</button>
+
+
+      </div>
+              <input type="file" id="fileInput">
+        <button id="sendFileBtn" onclick="uploadFile()">Send File</button>
+    </div>
+  </div>
+
+  <script src="chat.js"></script>
+
+
+    <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const fileInput = document.getElementById("fileInput");
+      const sendFileBtn = document.getElementById("sendFileBtn");
+      const togglePostFiles = document.getElementById("toggle-post-files");
+
+      togglePostFiles.checked = false;
+      fileInput.style.display = "none";
+      sendFileBtn.style.display = "none";
+
+      togglePostFiles.addEventListener("change", () => {
+        if (togglePostFiles.checked) {
+          fileInput.style.display = "inline-block";
+          sendFileBtn.style.display = "inline-block";
+        } else {
+          fileInput.style.display = "none";
+          sendFileBtn.style.display = "none";
+        }
+      });
+    });
+  </script>
+</body>
+
+</html>
