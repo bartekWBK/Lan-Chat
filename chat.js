@@ -20,7 +20,6 @@ let showFileLinks = true;
 let isAlive = true;
 
 let i = setInterval(() => {
-  console.log("a")
   if (!isAlive) {
     const div = document.createElement("div");
     div.innerHTML = `<span style="color: red;"><b>⚠️ Połączenie z serwerem zostało utracone.</b></span>`;
