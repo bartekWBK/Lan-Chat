@@ -7,6 +7,7 @@ import threading
 from datetime import datetime, timezone
 import cgi
 import os
+import signal
 
 clients = set()
 users = dict()
@@ -36,7 +37,9 @@ async def chat_handler(websocket):
             data = json.loads(message)
             nick = data.get("nick", "Unknown")
             msg_type = data.get("type")
-
+            if msg_type == "ping":
+                await websocket.send(json.dumps({"type": "pong"}))
+                continue
             if msg_type == "join":
                 new_nick = get_unique_nick(nick)
                 users[websocket] = new_nick  
@@ -80,11 +83,9 @@ def get_server_ip():
 
 SERVER_IP = get_server_ip()
 
-import os  # Make sure this is at the top of your file
 
 class CustomHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
-        # Force download for any file in /uploads/
         if self.path.startswith("/uploads/"):
             file_path = self.path.lstrip("/")
             file_path = os.path.normpath(file_path)
@@ -100,7 +101,6 @@ class CustomHandler(SimpleHTTPRequestHandler):
                 self.send_error(404, "File not found")
                 return
 
-        # Modify index.html to inject IP
         if self.path == "/" or self.path == "/index.html":
             with open("index.html", "r", encoding="utf-8") as f:
                 content = f.read()
