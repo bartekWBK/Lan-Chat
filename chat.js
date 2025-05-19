@@ -2,6 +2,7 @@ let currentUsers = [];
 let nick = "";
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
 let IP = ""
+console.log("v: 1.1")
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
 const send = document.getElementById("send");
@@ -15,6 +16,32 @@ const darkModeToggle = document.getElementById("toggle-darkmode");
 
 let showTimestamps = true;
 let showFileLinks = true;
+
+let isAlive = true;
+
+let i = setInterval(() => {
+  console.log("a")
+  if (!isAlive) {
+    const div = document.createElement("div");
+    div.innerHTML = `<span style="color: red;"><b>⚠️ Połączenie z serwerem zostało utracone.</b></span>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    clearInterval(i);
+    alert("🚫 Disconnected from server. The server may be offline.");
+    location.reload();
+    return;
+  }
+  isAlive = false;
+  try {
+    ws.send(JSON.stringify({ type: "ping" }));
+  } catch (e) {
+    const div = document.createElement("div");
+    div.innerHTML = `<span style="color: red;"><b>⚠️ Serwer nie odpowiada.</b></span>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+}, 5000);
+
 
 function promptForNick() {
   let input;
@@ -67,7 +94,10 @@ ws.onmessage = (event) => {
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
   }
-  
+  if (data.type === "pong") {
+    isAlive = true;
+    return;
+  }
   if (data.type === "IP") {
     const ip = document.getElementById("LAN");
     if (ip) ip.innerHTML = `LAN chat - ${data.ip}:8000`;
@@ -85,6 +115,8 @@ ws.onmessage = (event) => {
     });
   }
 };
+
+
 
 toggleFileLinks.checked = showFileLinks;
 toggleFileLinks.addEventListener("change", () => {
@@ -104,7 +136,6 @@ function formatMessage(data) {
 
   const text = data.text;
 
-  // If entire message is a single code block
   if (/^```([\s\S]*?)```$/.test(text.trim())) {
     const code = text.trim().replace(/^```([\s\S]*?)```$/, "$1");
     return `${timestamp}<b>${escapeHtml(data.nick)}:</b>
@@ -114,17 +145,14 @@ function formatMessage(data) {
       </div>`;
   }
 
-  // Parse multiple code blocks and links
   let processed = text;
 
-  // Extract code blocks
   const codeBlocks = [];
   processed = processed.replace(/```([\s\S]*?)```/g, (_, code) => {
     codeBlocks.push(code);
     return `___CODEBLOCK${codeBlocks.length - 1}___`;
   });
 
-  // Extract links if enabled
   const links = [];
   if (showFileLinks) {
     processed = processed.replace(/<a\s+[^>]+>(.*?)<\/a>/gi, (match) => {
@@ -133,13 +161,10 @@ function formatMessage(data) {
     });
   }
 
-  // Escape remaining text
   processed = escapeHtml(processed);
 
-  // Restore links
   processed = processed.replace(/___LINK(\d+)___/g, (_, i) => links[i]);
 
-  // Restore code blocks with copy button bottom right
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
     const escapedCode = escapeHtml(codeBlocks[i]);
     return `
@@ -153,7 +178,6 @@ function formatMessage(data) {
   return `${timestamp}<b>${escapeHtml(data.nick)}:</b> ${processed}`;
 }
 
-// Single event listener for copy buttons
 document.addEventListener('click', (e) => {
   if (e.target.classList.contains('copy-btn')) {
     const codeElem = e.target.closest('.code-block')?.querySelector('code, pre');
@@ -179,7 +203,6 @@ function fallbackCopyText(text, button) {
   try {
     const textarea = document.createElement('textarea');
     textarea.value = text;
-    // Make textarea out of viewport
     textarea.style.position = 'fixed';
     textarea.style.left = '-9999px';
     document.body.appendChild(textarea);
@@ -207,7 +230,6 @@ function fallbackCopyText(text, button) {
 
 
 
-// Your escapeHtml function:
 function escapeHtml(text) {
   if (!text) return "";
   return text
