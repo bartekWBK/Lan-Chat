@@ -1,4 +1,3 @@
-/* Reset & basics */
 * {
   box-sizing: border-box;
 }
@@ -140,7 +139,6 @@ pre {
   margin-right: 5px;
 }
 
-/* Code block with copy button */
 .code-block {
   position: relative;
   margin-bottom: 1em;
@@ -151,7 +149,6 @@ pre {
   padding: 10px;
 }
 
-/* Copy button positioned in bottom-right corner */
 .copy-btn {
   position: absolute;
   bottom: 8px;
@@ -248,7 +245,7 @@ pre.code-raw {
   font-family: monospace;
 }
 .code-block pre {
-  white-space: pre-wrap; /* or pre, depending on desired wrapping */
+  white-space: pre-wrap; 
   font-family: monospace;
   background: #222;
   color: #eee;
