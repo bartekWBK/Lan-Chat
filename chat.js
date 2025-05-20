@@ -26,10 +26,98 @@ const fileUploadControls = document.getElementById("file-upload-controls");
 const clearFilesBtn = document.getElementById("clear-files-btn");
 const customNickColorInput = document.getElementById("custom-nick-color");
 let deletedFiles = new Set();
-let showTimestamps = true;
-let showFileLinks = false;
-let isAlive = true;
+let showTimestamps = localStorage.getItem("showTimestamps") === "true";
+let showFileLinks = localStorage.getItem("showFileLinks") === "true";
 let customNickColor = localStorage.getItem("customNickColor") || "";
+let isAlive = true;
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Restore toggles and settings from localStorage
+  showTimestamps = localStorage.getItem("showTimestamps") === "true";
+  showFileLinks = localStorage.getItem("showFileLinks") === "true";
+  customNickColor = localStorage.getItem("customNickColor") || "";
+  toggleTimestamps.checked = showTimestamps;
+  toggleFileLinks.checked = showFileLinks;
+  if (customNickColor) customNickColorInput.value = customNickColor;
+  togglePostFiles.checked = localStorage.getItem("togglePostFiles") === "true";
+  fileUploadControls.style.display = togglePostFiles.checked ? "block" : "none";
+  darkModeToggle.checked = localStorage.getItem("darkMode") !== "false";
+  if (darkModeToggle.checked) document.body.classList.add("dark");
+  else document.body.classList.remove("dark");
+
+  // File upload controls visibility
+  fileInput.value = "";
+  fileUploadLabel.textContent = "📎 Choose File";
+  sendFileBtn.style.display = "none";
+
+  // File input change
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length > 0) {
+      fileUploadLabel.textContent = "📎 " + fileInput.files[0].name;
+      sendFileBtn.style.display = "inline-block";
+    } else {
+      fileUploadLabel.textContent = "📎 Choose File";
+      sendFileBtn.style.display = "none";
+    }
+  });
+
+  // Post files toggle
+  togglePostFiles.addEventListener("change", () => {
+    localStorage.setItem("togglePostFiles", togglePostFiles.checked);
+    fileUploadControls.style.display = togglePostFiles.checked ? "block" : "none";
+    if (!togglePostFiles.checked) {
+      fileInput.value = "";
+      fileUploadLabel.textContent = "📎 Choose File";
+      sendFileBtn.style.display = "none";
+    }
+  });
+
+
+  // Timestamps toggle
+  toggleTimestamps.onchange = () => {
+    showTimestamps = toggleTimestamps.checked;
+    localStorage.setItem("showTimestamps", showTimestamps);
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+  };
+
+  // File links toggle
+  toggleFileLinks.addEventListener("change", () => {
+    showFileLinks = toggleFileLinks.checked;
+    localStorage.setItem("showFileLinks", showFileLinks);
+    fileListDiv.style.display = showFileLinks ? "block" : "none";
+    if (showFileLinks) fetchFileList();
+    updateClearFilesBtn();
+  });
+
+  // Custom nick color
+  customNickColorInput.addEventListener("input", () => {
+    customNickColor = customNickColorInput.value;
+    localStorage.setItem("customNickColor", customNickColor);
+    ws.send(JSON.stringify({ type: "color", color: customNickColor }));
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+  });
+
+  // Dark mode toggle
+  darkModeToggle.addEventListener("change", () => {
+    localStorage.setItem("darkMode", darkModeToggle.checked);
+    if (darkModeToggle.checked) {
+      document.body.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+    }
+    settingsPanel.style.color = darkModeToggle.checked ? "#eee" : "#333";
+  });
+});
 
 function isAdmin() {
   return is_admin;
@@ -74,10 +162,12 @@ function formatTime(iso) {
 }
 
 function promptForNick() {
+  let lastNick = localStorage.getItem("lastNick") || "";
   let input;
   do {
-    input = prompt("Enter your nickname:")?.trim();
+    input = prompt("Enter your nickname:", lastNick)?.trim();
   } while (!input);
+  localStorage.setItem("lastNick", input);
   return input;
 }
 
@@ -149,6 +239,7 @@ ws.onmessage = (event) => {
   }
   if (data.type === "nick-update") {
     nick = data.nick;
+    localStorage.setItem("lastNick", nick);
   }
   if (data.type === "unmuted") {
     alert("You have been unmuted by the admin. You can send messages again.");

@@ -61,28 +61,7 @@
   <script src="chat.js"></script>
 
 
-    <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const fileInput = document.getElementById("fileInput");
-      const sendFileBtn = document.getElementById("sendFileBtn");
-      const togglePostFiles = document.getElementById("toggle-post-files");
 
-      togglePostFiles.checked = false;
-      fileInput.style.display = "none";
-      sendFileBtn.style.display = "none";
-
-      togglePostFiles.addEventListener("change", () => {
-        if (togglePostFiles.checked) {
-          fileInput.style.display = "inline-block";
-          sendFileBtn.style.display = "inline-block";
-        } else {
-          fileInput.style.display = "none";
-          sendFileBtn.style.display = "none";
-        }
-      });
-    });
-    
-  </script>
 </body>
 
 </html>
