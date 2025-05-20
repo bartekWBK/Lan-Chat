@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.3");
+console.log("v: 1.3.1");
 
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
@@ -104,8 +104,12 @@ code.onclick = () => {
 };
 
 ws.onopen = () => {
-  nick = promptForNick();
-  ws.send(JSON.stringify({ type: "join", nick }));
+  if (location.hostname != "localhost") {
+    nick = promptForNick();
+    ws.send(JSON.stringify({ type: "join", nick }));
+  }else{
+    ws.send(JSON.stringify({ type: "join", nick }));
+  }
 };
 
 ws.onmessage = (event) => {
