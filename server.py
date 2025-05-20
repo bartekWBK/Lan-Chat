@@ -53,11 +53,14 @@ async def chat_handler(websocket):
                 await websocket.send(json.dumps({"type": "pong"}))
                 continue
             if msg_type == "join":
+                peer_ip = websocket.remote_address[0]
+                if peer_ip == "loaclhost":
+                    await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP}))
+                    continue
                 color = random.choice(COLOR_PALETTE)
                 new_nick = get_unique_nick(nick)
                 users[websocket] = {"nick": new_nick, "color": color}
 
-                peer_ip = websocket.remote_address[0]
                 is_admin = peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
                 users[websocket] = {"nick": new_nick, "color": color, "is_admin": is_admin}
                 await notify_users()
