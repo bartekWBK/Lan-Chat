@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.3.2");
+console.log("v: 1.4.0");
 
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
@@ -32,7 +32,6 @@ let customNickColor = localStorage.getItem("customNickColor") || "";
 let isAlive = true;
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Restore toggles and settings from localStorage
   showTimestamps = localStorage.getItem("showTimestamps") === "true";
   showFileLinks = localStorage.getItem("showFileLinks") === "true";
   customNickColor = localStorage.getItem("customNickColor") || "";
@@ -45,12 +44,10 @@ document.addEventListener("DOMContentLoaded", () => {
   if (darkModeToggle.checked) document.body.classList.add("dark");
   else document.body.classList.remove("dark");
 
-  // File upload controls visibility
   fileInput.value = "";
   fileUploadLabel.textContent = "📎 Choose File";
   sendFileBtn.style.display = "none";
 
-  // File input change
   fileInput.addEventListener("change", () => {
     if (fileInput.files.length > 0) {
       fileUploadLabel.textContent = "📎 " + fileInput.files[0].name;
@@ -61,7 +58,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Post files toggle
   togglePostFiles.addEventListener("change", () => {
     localStorage.setItem("togglePostFiles", togglePostFiles.checked);
     fileUploadControls.style.display = togglePostFiles.checked ? "block" : "none";
@@ -72,8 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-
-  // Timestamps toggle
   toggleTimestamps.onchange = () => {
     showTimestamps = toggleTimestamps.checked;
     localStorage.setItem("showTimestamps", showTimestamps);
@@ -85,7 +79,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  // File links toggle
   toggleFileLinks.addEventListener("change", () => {
     showFileLinks = toggleFileLinks.checked;
     localStorage.setItem("showFileLinks", showFileLinks);
@@ -94,7 +87,6 @@ document.addEventListener("DOMContentLoaded", () => {
     updateClearFilesBtn();
   });
 
-  // Custom nick color
   customNickColorInput.addEventListener("input", () => {
     customNickColor = customNickColorInput.value;
     localStorage.setItem("customNickColor", customNickColor);
@@ -107,7 +99,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Dark mode toggle
   darkModeToggle.addEventListener("change", () => {
     localStorage.setItem("darkMode", darkModeToggle.checked);
     if (darkModeToggle.checked) {
@@ -117,6 +108,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     settingsPanel.style.color = darkModeToggle.checked ? "#eee" : "#333";
   });
+
+  fileListDiv.style.display = showFileLinks ? "block" : "none";
+  if (showFileLinks) fetchFileList();
+  updateClearFilesBtn();
+
+  settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
 });
 
 function isAdmin() {
@@ -210,7 +207,6 @@ ws.onmessage = (event) => {
   if (data.type === "file-deleted") {
       if (Array.isArray(data.files)) {
         data.files.forEach(fname => deletedFiles.add(fname));
-        // Update file list UI
         const ul = document.getElementById("uploaded-files");
         if (ul) {
           [...ul.children].forEach(li => {
@@ -437,29 +433,6 @@ if (clearFilesBtn) {
   };
 }
 
-fileInput.addEventListener("change", () => {
-  if (fileInput.files.length > 0) {
-    fileUploadLabel.textContent = "📎 " + fileInput.files[0].name;
-    sendFileBtn.style.display = "inline-block";
-  } else {
-    fileUploadLabel.textContent = "📎 Choose File";
-    sendFileBtn.style.display = "none";
-  }
-});
-sendFileBtn.style.display = "none";
-
-togglePostFiles.addEventListener("change", () => {
-  if (togglePostFiles.checked) {
-    fileUploadControls.style.display = "block";
-  } else {
-    fileUploadControls.style.display = "none";
-    fileInput.value = "";
-    fileUploadLabel.textContent = "📎 Choose File";
-    sendFileBtn.style.display = "none";
-  }
-});
-fileUploadControls.style.display = togglePostFiles.checked ? "block" : "none";
-
 function uploadFile() {
   const file = fileInput?.files[0];
   if (!file) return;
@@ -503,7 +476,6 @@ function uploadFile() {
     if (xhr.status === 200) {
       const savedName = xhr.responseText.trim();
       const url = `http://${IP}:8000/uploads/${encodeURIComponent(savedName)}`;
-      // Use the savedName as the display name in chat
       ws.send(JSON.stringify({ type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` }));
       fileInput.value = ""; 
       fileUploadLabel.textContent = "📎 Choose File";
@@ -525,34 +497,6 @@ function uploadFile() {
 
   xhr.send(formData);
 }
-
-toggleFileLinks.checked = showFileLinks;
-toggleFileLinks.addEventListener("change", () => {
-  showFileLinks = toggleFileLinks.checked;
-  fileListDiv.style.display = showFileLinks ? "block" : "none";
-  if (showFileLinks) fetchFileList();
-  updateClearFilesBtn();
-});
-if (toggleFileLinks.checked) {
-  fileListDiv.style.display = "block";
-  fetchFileList();
-  updateClearFilesBtn();
-}
-
-if (customNickColor) {
-  customNickColorInput.value = customNickColor;
-}
-customNickColorInput.addEventListener("input", () => {
-  customNickColor = customNickColorInput.value;
-  localStorage.setItem("customNickColor", customNickColor);
-  ws.send(JSON.stringify({ type: "color", color: customNickColor }));
-  [...chat.children].forEach(div => {
-    const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
-    if (originalData) {
-      div.innerHTML = formatMessage(originalData);
-    }
-  });
-});
 
 function formatMessage(data, forceDeleted = false) {
   let timestamp = showTimestamps && data.timestamp
@@ -665,30 +609,6 @@ function fallbackCopyText(text, button) {
   setTimeout(() => button.textContent = 'Copy', 1500);
 }
 
-document.body.classList.add("dark");
-darkModeToggle.checked = document.body.classList.contains("dark");
-
-darkModeToggle.addEventListener("change", () => {
-  if (darkModeToggle.checked) {
-    document.body.classList.add("dark");
-  } else {
-    document.body.classList.remove("dark");
-  }
-  settingsPanel.style.color = darkModeToggle.checked ? "#eee" : "#333";
-});
-settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
-
-toggleTimestamps.checked = showTimestamps;
-toggleTimestamps.onchange = () => {
-  showTimestamps = toggleTimestamps.checked;
-  [...chat.children].forEach(div => {
-    const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
-    if (originalData) {
-      div.innerHTML = formatMessage(originalData);
-    }
-  });
-};
-
 window.downloadFileWithProgress = function(url, filename) {
   const progressId = `download-progress-${filename}`;
   let progressDiv = document.getElementById(progressId);
@@ -774,9 +694,7 @@ function updateDeletedFilesInChat() {
   fetch("/file-list")
     .then(res => res.json())
     .then(serverFiles => {
-      // Build a set of files that exist on the server
       const serverFilesSet = new Set(serverFiles);
-      // Go through all chat messages
       [...chat.children].forEach(div => {
         const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
         if (
@@ -787,7 +705,6 @@ function updateDeletedFilesInChat() {
           const match = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
           if (match) {
             const filename = match[2];
-            // If file is not on server, mark as deleted
             if (!serverFilesSet.has(filename)) {
               deletedFiles.add(filename);
               div.classList.add("file-deleted");
