@@ -696,3 +696,9 @@ body.dark .chat-box::-webkit-scrollbar-thumb {
 body.dark .chat-box::-webkit-scrollbar-thumb:hover {
   background: #666;
 }
+
+.file-deleted {
+  opacity: 0.6;
+  text-decoration: line-through;
+  color: #888 !important;
+}

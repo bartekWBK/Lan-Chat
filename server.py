@@ -85,14 +85,19 @@ async def chat_handler(websocket):
                 if peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost")):
                     action = data.get("action")
                     if action == "clear-files":
+                        deleted_files = []
                         for fname in os.listdir("uploads"):
                             try:
                                 os.remove(os.path.join("uploads", fname))
+                                deleted_files.append(fname)
                             except Exception:
                                 pass
                         await notify_users()
                         msg = json.dumps({"type": "files-cleared"})
                         await asyncio.gather(*[asyncio.create_task(client.send(msg)) for client in clients])
+                        if deleted_files:
+                            del_msg = json.dumps({"type": "file-deleted", "files": deleted_files})
+                            await asyncio.gather(*[asyncio.create_task(client.send(del_msg)) for client in clients])
                     elif action == "mute":
                         user_to_mute = data.get("user")
                         for ws, info in users.items():
@@ -207,32 +212,35 @@ class CustomHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/upload":
-            content_type = self.headers.get('Content-Type')
-            if not content_type:
-                self.send_error(400, "Content-Type header missing")
-                return
-
             form = cgi.FieldStorage(
                 fp=self.rfile,
                 headers=self.headers,
-                environ={'REQUEST_METHOD': 'POST', 'CONTENT_TYPE': content_type}
+                environ={'REQUEST_METHOD': 'POST'}
             )
-
-            file_item = form["file"]
-            if file_item.filename:
-                filename = os.path.basename(file_item.filename)
-                unique_suffix = datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(uuid.uuid4())[:8]
-                name, ext = os.path.splitext(filename)
-                safe_filename = f"{name}_{unique_suffix}{ext}"
-                save_path = os.path.join("uploads", safe_filename)
-                with open(save_path, "wb") as f:
-                    f.write(file_item.file.read())
-
+            fileitem = form['file']
+            if fileitem.filename:
+                # Use the original filename, but sanitize it!
+                filename = os.path.basename(fileitem.filename)
+                filepath = os.path.join("uploads", filename)
+                # If file exists, add a suffix to avoid overwrite
+                base, ext = os.path.splitext(filename)
+                i = 1
+                while os.path.exists(filepath):
+                    filename = f"{base}_{i}{ext}"
+                    filepath = os.path.join("uploads", filename)
+                    i += 1
+                with open(filepath, 'wb') as f:
+                    f.write(fileitem.file.read())
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(safe_filename.encode("utf-8"))
+                self.wfile.write(filename.encode())
             else:
-                self.send_error(400, "No file uploaded")
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"No file uploaded")
+        else:
+            self.send_response(404)
+            self.end_headers()
 
 
 def start_http_server():

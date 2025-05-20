@@ -25,7 +25,7 @@ const togglePostFiles = document.getElementById("toggle-post-files");
 const fileUploadControls = document.getElementById("file-upload-controls");
 const clearFilesBtn = document.getElementById("clear-files-btn");
 const customNickColorInput = document.getElementById("custom-nick-color");
-
+let deletedFiles = new Set();
 let showTimestamps = true;
 let showFileLinks = false;
 let isAlive = true;
@@ -114,7 +114,39 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-
+  if (data.type === "files-cleared" || data.type === "file-deleted") {
+    updateDeletedFilesInChat();
+  }
+  if (data.type === "file-deleted") {
+      if (Array.isArray(data.files)) {
+        data.files.forEach(fname => deletedFiles.add(fname));
+        // Update file list UI
+        const ul = document.getElementById("uploaded-files");
+        if (ul) {
+          [...ul.children].forEach(li => {
+            const a = li.querySelector("a");
+            if (a && deletedFiles.has(a.textContent.replace(" (deleted)", ""))) {
+              li.classList.add("file-deleted");
+              a.style.textDecoration = "line-through";
+              a.style.color = "#888";
+              if (!a.textContent.endsWith(" (deleted)")) {
+                a.textContent += " (deleted)";
+              }
+            }
+          });
+        }
+        [...chat.children].forEach(div => {
+        const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+        if (originalData && originalData.text && /^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/.test(originalData.text)) {
+          const match = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
+          if (match && deletedFiles.has(match[2])) {
+            div.classList.add("file-deleted");
+            div.innerHTML = formatMessage(originalData, true);
+          }
+        }
+      });
+    }
+  }
   if (data.type === "nick-update") {
     nick = data.nick;
   }
@@ -295,6 +327,7 @@ function fetchFileList() {
         li.appendChild(a);
         ul.appendChild(li);
       });
+      updateDeletedFilesInChat(); 
     });
 }
 
@@ -377,9 +410,10 @@ function uploadFile() {
     sendFileBtn.innerHTML = "Send File";
     tracker.textContent = "";
     if (xhr.status === 200) {
-      const savedName = xhr.responseText;
+      const savedName = xhr.responseText.trim();
       const url = `http://${IP}:8000/uploads/${encodeURIComponent(savedName)}`;
-      ws.send(JSON.stringify({ type: "message", nick, text: `📎 <a href="${url}" target="_blank">${file.name}</a>` }));
+      // Use the savedName as the display name in chat
+      ws.send(JSON.stringify({ type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` }));
       fileInput.value = ""; 
       fileUploadLabel.textContent = "📎 Choose File";
       sendFileBtn.style.display = "none";
@@ -429,7 +463,7 @@ customNickColorInput.addEventListener("input", () => {
   });
 });
 
-function formatMessage(data) {
+function formatMessage(data, forceDeleted = false) {
   let timestamp = showTimestamps && data.timestamp
     ? `<span class="timestamp">[${formatTime(data.timestamp)}]</span> `
     : "";
@@ -445,11 +479,12 @@ function formatMessage(data) {
   if (fileLinkMatch) {
     const url = fileLinkMatch[1];
     const filename = fileLinkMatch[2];
+    const isDeleted = forceDeleted || deletedFiles.has(filename);
     return `${timestamp}${nickHtml}
-      <div class="file-card">
+      <div class="file-card${isDeleted ? ' file-deleted' : ''}">
         <span class="file-icon">📄</span>
-        <span class="file-name">${escapeHtml(filename)}</span>
-        <button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>
+        <span class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
+        ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
         <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
       </div>`;
   }
@@ -643,3 +678,36 @@ let i = setInterval(() => {
 settingsBtn.onclick = () => {
   settingsPanel.style.display = settingsPanel.style.display === "none" ? "block" : "none";
 };
+
+function updateDeletedFilesInChat() {
+  fetch("/file-list")
+    .then(res => res.json())
+    .then(serverFiles => {
+      // Build a set of files that exist on the server
+      const serverFilesSet = new Set(serverFiles);
+      // Go through all chat messages
+      [...chat.children].forEach(div => {
+        const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+        if (
+          originalData &&
+          originalData.text &&
+          /^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/.test(originalData.text)
+        ) {
+          const match = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
+          if (match) {
+            const filename = match[2];
+            // If file is not on server, mark as deleted
+            if (!serverFilesSet.has(filename)) {
+              deletedFiles.add(filename);
+              div.classList.add("file-deleted");
+              div.innerHTML = formatMessage(originalData, true);
+            } else {
+              deletedFiles.delete(filename);
+              div.classList.remove("file-deleted");
+              div.innerHTML = formatMessage(originalData, false);
+            }
+          }
+        }
+      });
+    });
+}
