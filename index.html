@@ -4,48 +4,59 @@
   <meta charset="UTF-8" />
   <title>LAN Chat</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="icon.png">
 </head>
 <body>
-  <h1 id="LAN">LAN Chat</h1>
+  <h1 id="LAN"><b>LAN Chat</b></h1>
 
-  <div id="container">
-    <div id="sidebar">
-      <h2>Users</h2>
-      <ul id="users"></ul>
-
-      <button id="settings-btn">⚙ Settings</button>
-      <div id="settings-panel" style="display: none;">
-        <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />
-        <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
-        <br>
-        <label>
-          <input type="checkbox" id="toggle-file-links" />
-          Show files
-        </label>
-        <br>
-        <label>
-          <input type="checkbox" id="toggle-post-files" />
-          Post files
-        </label>
-
-
-      </div>
-    </div>
-
-    <div id="main-chat">
-      <div id="chat" class="chat-box"></div>
-
-      <div class="input-area">
-        <textarea id="msg" placeholder="Type your message..."></textarea>
-        <button id="send">Send</button>
-        <button id="code">Code</button>
-
-
-      </div>
-              <input type="file" id="fileInput">
-        <button id="sendFileBtn" onclick="uploadFile()">Send File</button>
+<div id="container">
+  <div id="sidebar">
+    <h2>Users</h2>
+    <ul id="users"></ul>
+    <button id="settings-btn">⚙ Settings</button>
+    <div id="settings-panel" style="display: none;">
+      <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />
+      <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
+      <br>
+      <label>
+        <input type="checkbox" id="toggle-file-links" />
+        Show files list
+      </label>
+      <br>
+      <label>
+        <input type="checkbox" id="toggle-post-files" />
+        Post files
+      </label><br>
+      <label>
+        Nick color:
+        <input type="color" id="custom-nick-color"  style="vertical-align: middle;">
+      </label>
     </div>
   </div>
+
+  <div id="main-chat">
+    <div id="chat" class="chat-box"></div>
+    <div class="input-area">
+      <textarea id="msg" placeholder="Type your message..."></textarea>
+      <button id="send">Send</button>
+      <button id="code">Code</button>
+    </div>
+<div id="file-upload-controls" style="display:none;">
+  <label for="fileInput" class="file-upload-label">📎 Choose File</label>
+  <input type="file" id="fileInput">
+  <button id="sendFileBtn" onclick="uploadFile()">Send File</button>
+</div>
+  </div>
+
+  <div id="file-list" style="margin:0; display:none;">
+    <b>Uploaded Files:</b>
+    <ul id="uploaded-files"></ul>
+    <button id="clear-files-btn" style="margin-top:10px; display:none;">🗑 Clear Uploaded Files</button>
+  </div>
+  
+  
+</div>
+  
 
   <script src="chat.js"></script>
 
@@ -70,6 +81,7 @@
         }
       });
     });
+    
   </script>
 </body>
 
