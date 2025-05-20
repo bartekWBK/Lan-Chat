@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.3.1");
+console.log("v: 1.3.2");
 
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
