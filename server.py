@@ -2,7 +2,7 @@ import asyncio
 import json
 import websockets
 import socket
-from http.server import SimpleHTTPRequestHandler, HTTPServer
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import threading
 from datetime import datetime, timezone
 import cgi
@@ -28,8 +28,20 @@ COLOR_PALETTE = [
 async def notify_users():
     user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
     message = json.dumps({"type": "users", "users": user_list})
-    if clients:
-        await asyncio.gather(*[asyncio.create_task(client.send(message)) for client in clients])
+    to_remove = set()
+    tasks = []
+    for client in clients:
+        try:
+            tasks.append(asyncio.wait_for(client.send(message), timeout=2))
+        except Exception:
+            to_remove.add(client)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            to_remove.add(list(clients)[i])
+    for client in to_remove:
+        clients.discard(client)
+        users.pop(client, None)
     
 def get_unique_nick(base_nick):
     existing = set(u["nick"] for u in users.values())
@@ -224,7 +236,7 @@ class CustomHandler(SimpleHTTPRequestHandler):
 
 
 def start_http_server():
-    httpd = HTTPServer(("0.0.0.0", 8000), CustomHandler)
+    httpd = ThreadingHTTPServer(("0.0.0.0", 8000), CustomHandler)
     print("Website running at http://localhost:8000")
     httpd.serve_forever()
 
