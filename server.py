@@ -10,7 +10,7 @@ import os
 import uuid
 import random
 
-
+chat_history = []
 clients = set()
 users = dict()
 muted = set()
@@ -61,6 +61,13 @@ async def chat_handler(websocket):
             data = json.loads(message)
             nick = data.get("nick", "Unknown")
             msg_type = data.get("type")
+            if msg_type == "get-history":
+                # Send chat history to the requester only
+                await websocket.send(json.dumps({
+                    "type": "history",
+                    "messages": chat_history
+                }))
+                continue
             if msg_type == "ping":
                 await websocket.send(json.dumps({"type": "pong"}))
                 continue
@@ -78,6 +85,10 @@ async def chat_handler(websocket):
                 await notify_users()
                 await websocket.send(json.dumps({"type": "nick-update", "nick": new_nick}))
                 await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin}))
+                await websocket.send(json.dumps({
+                    "type": "history-available",
+                    "available": bool(chat_history)
+                }))
                 continue
             
             if msg_type == "admin":
@@ -132,13 +143,18 @@ async def chat_handler(websocket):
                     continue
                 text = data.get("text", "")
                 timestamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
-                final = json.dumps({
+                msg_obj = {
                     "type": "message",
                     "nick": users[websocket]["nick"],
                     "color": users[websocket]["color"],
                     "text": text,
                     "timestamp": timestamp
-                })
+                }
+                final = json.dumps(msg_obj)
+                chat_history.append(msg_obj)
+                # Limit history to last 200 messages
+                if len(chat_history) > 200:
+                    chat_history.pop(0)
                 await asyncio.gather(*[asyncio.create_task(client.send(final)) for client in clients])
     except:
         pass

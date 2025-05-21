@@ -5,6 +5,8 @@
   <title>LAN Chat</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="prism.css" />
+  <script src="prism.js"></script>
 </head>
 <body>
   <h1 id="LAN"><b>LAN Chat</b></h1>
@@ -13,6 +15,7 @@
   <div id="sidebar">
     <h2>Users</h2>
     <ul id="users"></ul>
+    <button id="recover-chat-btn" style="margin-bottom:10px; display:none;">Recover Chat</button>
     <button id="settings-btn">⚙ Settings</button>
     <div id="settings-panel" style="display: none;">
       <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />

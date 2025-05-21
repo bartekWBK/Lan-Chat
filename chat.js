@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.0");
+console.log("v: 1.4.1");
 
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
@@ -116,6 +116,13 @@ document.addEventListener("DOMContentLoaded", () => {
   settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
 });
 
+const recoverBtn = document.getElementById("recover-chat-btn");
+if (recoverBtn) recoverBtn.style.display = "none";
+document.getElementById("recover-chat-btn").onclick = function () {
+  ws.send(JSON.stringify({ type: "get-history" }));
+  this.style.display = "none";
+};
+
 function isAdmin() {
   return is_admin;
 }
@@ -185,7 +192,8 @@ function sendMessage() {
 
 code.onclick = () => {
   const selected = msg.value.slice(msg.selectionStart, msg.selectionEnd);
-  const wrapped = "```\n" + (selected || msg.value) + "\n```";
+  const content = (selected || msg.value).trim();
+  const wrapped = "```" + content + "```";
   ws.send(JSON.stringify({ type: "message", nick, text: wrapped }));
   msg.value = "";
 };
@@ -201,6 +209,24 @@ ws.onopen = () => {
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
+  if (window.Prism) Prism.highlightAll();
+  if (data.type === "history-available") {
+    if (recoverBtn) recoverBtn.style.display = data.available ? "block" : "none";
+    return;
+  }
+  if (data.type === "history") {
+    chat.innerHTML = "";
+    (data.messages || []).forEach(msgData => {
+      const div = document.createElement("div");
+      div.dataset.timestamp = msgData.timestamp;
+      div.dataset.original = JSON.stringify(msgData);
+      div.innerHTML = formatMessage(msgData);
+      chat.appendChild(div);
+    });
+    chat.scrollTop = chat.scrollHeight;
+    if (window.Prism) Prism.highlightAll();
+    return;
+  }
   if (data.type === "files-cleared" || data.type === "file-deleted") {
     updateDeletedFilesInChat();
   }
@@ -249,6 +275,7 @@ ws.onmessage = (event) => {
     div.innerHTML = formatMessage(data);
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
+    if (window.Prism) Prism.highlightAll();
     if (
       data.text.startsWith("📎 <a href=") &&
       toggleFileLinks.checked &&
@@ -526,9 +553,12 @@ function formatMessage(data, forceDeleted = false) {
 
   if (/^```([\s\S]*?)```$/.test(text.trim())) {
     const code = text.trim().replace(/^```([\s\S]*?)```$/, "$1");
+    let lang = "javascript";
+    const langMatch = text.trim().match(/^```(\w+)\n/);
+    if (langMatch) lang = langMatch[1];
     return `${timestamp}${nickHtml}
       <div class="code-block" style="position: relative; padding-bottom: 2em; margin: 8px 0;">
-        <pre class="code-raw">${escapeHtml(code)}</pre>
+        <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
         <button class="copy-btn" title="Copy code" style="position: absolute; bottom: 5px; right: 5px; font-size: 0.75em; padding: 3px 6px;">Copy</button>
       </div>`;
   }
@@ -554,7 +584,7 @@ function formatMessage(data, forceDeleted = false) {
     const escapedCode = escapeHtml(codeBlocks[i]);
     return `
       <div class="code-block" style="position: relative; padding-bottom: 2em; margin: 8px 0;">
-        <pre><code>${escapedCode}</code></pre>
+        <pre><code class="language-javascript">${escapedCode}</code></pre>
         <button class="copy-btn" title="Copy code" style="position: absolute; bottom: 5px; right: 5px; font-size: 0.75em; padding: 3px 6px;">Copy</button>
       </div>
     `;
