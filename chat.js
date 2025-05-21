@@ -5,8 +5,10 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.1");
-
+console.log("v: 1.4.2");
+let lang = "javascript";
+const codeLang = document.getElementById("code-lang");
+const mainChat = document.getElementById("main-chat");
 const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
 const send = document.getElementById("send");
@@ -37,6 +39,11 @@ document.addEventListener("DOMContentLoaded", () => {
   customNickColor = localStorage.getItem("customNickColor") || "";
   toggleTimestamps.checked = showTimestamps;
   toggleFileLinks.checked = showFileLinks;
+  if (mainChat) {
+    mainChat.style.maxWidth = fileListDiv.style.display !== "none"
+      ? "calc(100% - 420px)"
+      : "calc(100% - 220px)";
+  }
   if (customNickColor) customNickColorInput.value = customNickColor;
   togglePostFiles.checked = localStorage.getItem("togglePostFiles") === "true";
   fileUploadControls.style.display = togglePostFiles.checked ? "block" : "none";
@@ -85,6 +92,12 @@ document.addEventListener("DOMContentLoaded", () => {
     fileListDiv.style.display = showFileLinks ? "block" : "none";
     if (showFileLinks) fetchFileList();
     updateClearFilesBtn();
+    if (mainChat) {
+      mainChat.style.maxWidth = fileListDiv.style.display !== "none"
+        ? "calc(100% - 420px)"
+        : "calc(100% - 220px)";
+    }
+    settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
   });
 
   customNickColorInput.addEventListener("input", () => {
@@ -115,6 +128,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
 });
+
+
 
 const recoverBtn = document.getElementById("recover-chat-btn");
 if (recoverBtn) recoverBtn.style.display = "none";
@@ -444,7 +459,10 @@ function fetchFileList() {
       updateDeletedFilesInChat(); 
     });
 }
-
+codeLang.onchange = () => {
+  lang = codeLang.value;
+  localStorage.setItem("codeLang", lang);
+};
 function updateClearFilesBtn() {
   if (!clearFilesBtn || !fileListDiv) return;
   clearFilesBtn.style.display = (isAdmin() && fileListDiv.style.display !== "none") ? "block" : "none";
@@ -553,13 +571,13 @@ function formatMessage(data, forceDeleted = false) {
 
   if (/^```([\s\S]*?)```$/.test(text.trim())) {
     const code = text.trim().replace(/^```([\s\S]*?)```$/, "$1");
-    let lang = "javascript";
+    let lang = codeLang.value || "python";
     const langMatch = text.trim().match(/^```(\w+)\n/);
     if (langMatch) lang = langMatch[1];
     return `${timestamp}${nickHtml}
-      <div class="code-block" style="position: relative; padding-bottom: 2em; margin: 8px 0;">
+      <div class="code-block">
         <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
-        <button class="copy-btn" title="Copy code" style="position: absolute; bottom: 5px; right: 5px; font-size: 0.75em; padding: 3px 6px;">Copy</button>
+        <button class="copy-btn" title="Copy code">Copy</button>
       </div>`;
   }
 
@@ -583,9 +601,9 @@ function formatMessage(data, forceDeleted = false) {
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
     const escapedCode = escapeHtml(codeBlocks[i]);
     return `
-      <div class="code-block" style="position: relative; padding-bottom: 2em; margin: 8px 0;">
+      <div class="code-block" ">
         <pre><code class="language-javascript">${escapedCode}</code></pre>
-        <button class="copy-btn" title="Copy code" style="position: absolute; bottom: 5px; right: 5px; font-size: 0.75em; padding: 3px 6px;">Copy</button>
+        <button class="copy-btn" title="Copy code" ">Copy</button>
       </div>
     `;
   });
@@ -749,3 +767,46 @@ function updateDeletedFilesInChat() {
       });
     });
 }
+const langEmojis = {
+  plaintext: "📋",
+  php: "🐘",
+  python: "🐍",
+  javascript: "✨",
+  html: "🌐",
+  css: "🎨",
+  sql: "🗄️"
+};
+
+function setLangSelectDisplay() {
+  for (const opt of codeLang.options) {
+    const val = opt.value;
+    if (codeLang.value === val) {
+      opt.textContent = val === "plaintext" ? `${langEmojis[val]} None` : (langEmojis[val] || "");
+    } else {
+      if (langEmojis[val]) {
+        if (val === "plaintext") {
+          opt.textContent = `${langEmojis[val]} None`;
+          continue;
+        }
+        opt.textContent = `${langEmojis[val]} ${val.charAt(0).toUpperCase() + val.slice(1)}`;
+      }
+    }
+  }
+}
+
+codeLang.addEventListener("mousedown", () => {
+  for (const opt of codeLang.options) {
+    const val = opt.value;
+    if (langEmojis[val]) {
+      if (val === "plaintext") {
+        opt.textContent = `${langEmojis[val]} None`;
+      } else {
+        opt.textContent = `${langEmojis[val]} ${val.charAt(0).toUpperCase() + val.slice(1)}`;
+      }
+    }
+  }
+});
+codeLang.addEventListener("change", setLangSelectDisplay);
+codeLang.addEventListener("blur", setLangSelectDisplay);
+
+setLangSelectDisplay();

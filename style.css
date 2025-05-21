@@ -22,6 +22,7 @@ h1 {
   max-width: 1200px;
   margin: 0 auto;
   gap: 20px;
+  min-width: 0; 
 }
 
 #sidebar, #file-list {
@@ -49,11 +50,19 @@ h1 {
   overflow-y: auto;
   border: 1px solid #ddd;
   border-radius: 4px;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  flex-shrink: 0;
 }
 
 #users li {
   padding: 6px 8px;
   border-bottom: 1px solid #eee;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 #users li:last-child {
@@ -80,7 +89,8 @@ h1 {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  min-width: 0;      
+  max-width: 100%; 
 }
 
 .chat-box {
@@ -88,10 +98,17 @@ h1 {
   border: 1px solid #ccc;
   height: 400px;
   overflow-y: auto;
+  overflow-x: auto;
   padding: 10px;
   margin-bottom: 10px;
   border-radius: 6px;
   white-space: pre-wrap;
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  flex-shrink: 0;     /* Prevent shrinking */
 }
 
 .input-area {
@@ -143,7 +160,6 @@ pre {
 }
 
 .code-block {
-  position: relative;
   margin-bottom: 1em;
 }
 
@@ -339,13 +355,15 @@ pre.code-raw {
   font-family: monospace;
 }
 .code-block pre {
-  white-space: pre-wrap; 
+  white-space: pre-wrap;
   font-family: monospace;
   background: #222;
   color: #eee;
   padding: 10px;
   border-radius: 4px;
   overflow-x: auto;
+  margin: 0;
+  /* No extra elements or spacing */
 }
 .code-block {
   position: relative;
@@ -701,4 +719,67 @@ body.dark .chat-box::-webkit-scrollbar-thumb:hover {
   opacity: 0.6;
   text-decoration: line-through;
   color: #888 !important;
+}
+
+#sidebar {
+  flex-shrink: 0;
+}
+#main-chat {
+  max-width: calc(100% - 420px);
+}
+
+#main-chat {
+  transition: max-width 0.3s cubic-bezier(.4,2,.6,1), flex-basis 0.3s cubic-bezier(.4,2,.6,1);
+}
+
+#file-list[style*="display: none"] ~ #main-chat,
+#file-list[style*="display:none"] ~ #main-chat {
+  max-width: calc(100% - 220px);
+}
+#file-list {
+  width: 200px;
+  min-width: 200px;
+  max-width: 200px;
+  opacity: 1;
+  overflow: hidden;
+  transition: width 0.3s ease, min-width 0.3s ease, max-width 0.3s ease, opacity 0.3s ease;
+  will-change: width, min-width, max-width, opacity;
+}
+
+#file-list.hide {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  opacity: 0;
+  padding: 0;
+  border: none;
+}
+#main-chat {
+  transition: max-width 0.3s ease, flex-basis 0.3s ease;
+}
+
+#file-list {
+  transition: max-width 0.3s ease, opacity 0.3s ease;
+}
+
+.input-area select#code-lang {
+  font-size: 1em;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  margin-left: 8px;
+}
+
+.input-area select#code-lang {
+  font-size: 1em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  max-width: 4em;
+  margin-left: -0.01em;
+}
+body.dark .input-area select#code-lang {
+  background: #232323;
+  color: #eee;
+  border: 1px solid #444;
 }
