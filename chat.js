@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.3");
+console.log("v: 1.4.4");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -814,3 +814,21 @@ codeLang.addEventListener("change", setLangSelectDisplay);
 codeLang.addEventListener("blur", setLangSelectDisplay);
 
 setLangSelectDisplay();
+
+function adjustMainChatWidth() {
+  const isMobile = window.innerWidth <= 900;
+  const fileListHidden = fileListDiv.classList.contains("hide") || fileListDiv.style.display === "none";
+  if (isMobile && fileListHidden) {
+    mainChat.style.maxWidth = "100%";
+    mainChat.style.width = "100%";
+  } else if (isMobile) {
+    mainChat.style.maxWidth = "";
+    mainChat.style.width = "";
+  }
+}
+
+toggleFileLinks.addEventListener("change", adjustMainChatWidth);
+window.addEventListener("resize", adjustMainChatWidth);
+
+adjustMainChatWidth();
+window.onload = adjustMainChatWidth;

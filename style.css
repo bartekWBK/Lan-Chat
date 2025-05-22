@@ -783,3 +783,27 @@ body.dark .input-area select#code-lang {
   color: #eee;
   border: 1px solid #444;
 }
+@media (max-width: 900px) {
+  #file-list[style*="display: none"] ~ #main-chat,
+  #file-list[style*="display:none"] ~ #main-chat,
+  #file-list.hide ~ #main-chat {
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
+
+::-webkit-scrollbar {
+  width: 8px;
+  background: rgba(0, 0, 0, 0);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #282828;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #888;
+}
+
