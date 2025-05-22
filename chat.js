@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.4");
+console.log("v: 1.4.5");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -188,8 +188,8 @@ function promptForNick() {
   let lastNick = localStorage.getItem("lastNick") || "";
   let input;
   do {
-    input = prompt("Enter your nickname:", lastNick)?.trim();
-  } while (!input);
+    input = prompt("Enter your nickname (1-16 chars):", lastNick)?.trim();
+  } while (!input || input.length < 1 || input.length > 16);
   localStorage.setItem("lastNick", input);
   return input;
 }
@@ -292,6 +292,7 @@ ws.onmessage = (event) => {
     alert("You have been unmuted by the admin. You can send messages again.");
     msg.disabled = false;
     send.disabled = false;
+    ws.send(JSON.stringify({ type: "check" }));
   }
   if (data.type === "message") {
     const div = document.createElement("div");
@@ -320,8 +321,9 @@ ws.onmessage = (event) => {
   }
   if (data.type === "IP") {
     const ip = document.getElementById("LAN");
+    let mutedUsers = new Set(data.muted || []);
     if (ip) ip.innerHTML = `LAN chat - ${data.ip}:8000`;
-    IP = data.ip;
+    IP = data.ip; 
     if (location.hostname === "localhost") {
       window.location.href = `http://${data.ip}:8000`;
     }
@@ -338,39 +340,59 @@ ws.onmessage = (event) => {
         li.textContent = user.nick;
         if (user.color) li.style.color = user.color;
         if (user.nick === nick) li.style.fontWeight = "bold";
-        if (isAdmin() && user.nick !== nick) {
-          const muteBtn = document.createElement("button");
-          muteBtn.textContent = "🔇";
-          muteBtn.title = "Mute";
-          muteBtn.className = "user-action-btn";
-          muteBtn.onclick = (e) => {
+        if (mutedUsers.has(user.nick)) {
+          const mutedIcon = document.createElement("span");
+          mutedIcon.textContent = "🔇";
+          mutedIcon.title = "Muted";
+          mutedIcon.style.marginRight = "4px";
+          li.insertBefore(mutedIcon, li.firstChild);
+        }
+        if (is_admin && user.nick !== nick) {
+          const moreBtn = document.createElement("button");
+          moreBtn.textContent = "⋮";
+          moreBtn.title = "More options";
+          moreBtn.className = "user-action-btn more-options-btn";
+          moreBtn.onclick = (e) => {
             e.stopPropagation();
-            ws.send(JSON.stringify({ type: "admin", action: "mute", user: user.nick }));
-          };
-          li.appendChild(muteBtn);
+            // Remove any existing menu
+            document.querySelectorAll('.admin-user-menu').forEach(el => el.remove());
+            // Create menu
+            const menu = document.createElement("div");
+            menu.className = "admin-user-menu";
+            menu.style.position = "absolute";
+            menu.style.left = (li.getBoundingClientRect().left - 110) + "px";
+            menu.style.top = (li.getBoundingClientRect().top + window.scrollY) + "px";
+            menu.innerHTML = `
+              <button class="user-action-btn" data-action="mute">🔇 Mute</button>
+              <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
+              <button class="user-action-btn" data-action="kick">🚫 Kick</button>
+            `;
+            document.body.appendChild(menu);
 
-          const unmuteBtn = document.createElement("button");
-          unmuteBtn.textContent = "🔊";
-          unmuteBtn.title = "Unmute";
-          unmuteBtn.className = "user-action-btn";
-          unmuteBtn.onclick = (e) => {
-            e.stopPropagation();
-            ws.send(JSON.stringify({ type: "admin", action: "unmute", user: user.nick }));
-          };
-          li.appendChild(unmuteBtn);
+            // Handle menu actions
+            menu.onclick = (evt) => {
+              evt.stopPropagation();
+              const action = evt.target.dataset.action;
+              if (action) {
+                ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+                menu.remove();
+              }
+            };
 
-          const kickBtn = document.createElement("button");
-          kickBtn.textContent = "🚫";
-          kickBtn.title = "Kick";
-          kickBtn.className = "user-action-btn";
-          kickBtn.onclick = (e) => {
-            e.stopPropagation();
-            ws.send(JSON.stringify({ type: "admin", action: "kick", user: user.nick }));
+            // Close menu on outside click
+            document.addEventListener("mousedown", function handler(ev) {
+              if (!menu.contains(ev.target)) {
+                menu.remove();
+                document.removeEventListener("mousedown", handler);
+              }
+            });
           };
-          li.appendChild(kickBtn);
+          li.style.position = "relative";
+          li.insertBefore(moreBtn, li.firstChild);
         }
         userList.appendChild(li);
-      });
+      }
+    );
       if (myColor && customNickColorInput) {
         customNickColorInput.value = myColor;
       }
@@ -386,6 +408,8 @@ ws.onmessage = (event) => {
     alert("You have been muted by the admin. You cannot send messages.");
     msg.disabled = true;
     send.disabled = true;
+    ws.send(JSON.stringify({ type: "check" }));
+
   }
   if (data.type === "kicked") {
     alert("You have been kicked by the admin.");
@@ -393,6 +417,7 @@ ws.onmessage = (event) => {
   }
   if (data.type === "users") {
     currentUsers = data.users || [];
+    let mutedUsers = new Set(data.muted || []);
     userColors = {};
     userList.innerHTML = "";
     let myColor = null;
@@ -403,37 +428,56 @@ ws.onmessage = (event) => {
       li.textContent = user.nick;
       if (user.color) li.style.color = user.color;
       if (user.nick === nick) li.style.fontWeight = "bold";
+      if (mutedUsers.has(user.nick)) {
+        const mutedIcon = document.createElement("span");
+        mutedIcon.textContent = "🔇";
+        mutedIcon.title = "Muted";
+        mutedIcon.style.marginRight = "4px";
+        li.insertBefore(mutedIcon, li.firstChild);
+      }
 
-      if (isAdmin() && user.nick !== nick) {
-        const muteBtn = document.createElement("button");
-        muteBtn.textContent = "🔇";
-        muteBtn.title = "Mute";
-        muteBtn.className = "user-action-btn";
-        muteBtn.onclick = (e) => {
+      if (is_admin && user.nick !== nick) {
+        const moreBtn = document.createElement("button");
+        moreBtn.textContent = "⋮";
+        moreBtn.title = "More options";
+        moreBtn.className = "user-action-btn more-options-btn";
+        moreBtn.onclick = (e) => {
           e.stopPropagation();
-          ws.send(JSON.stringify({ type: "admin", action: "mute", user: user.nick }));
-        };
-        li.appendChild(muteBtn);
+          // Remove any existing menu
+          document.querySelectorAll('.admin-user-menu').forEach(el => el.remove());
+          // Create menu
+          const menu = document.createElement("div");
+          menu.className = "admin-user-menu";
+          menu.style.position = "absolute";
+          menu.style.left = (li.getBoundingClientRect().left - 110) + "px";
+          menu.style.top = (li.getBoundingClientRect().top + window.scrollY) + "px";
+          menu.innerHTML = `
+            <button class="user-action-btn" data-action="mute">🔇 Mute</button>
+            <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
+            <button class="user-action-btn" data-action="kick">🚫 Kick</button>
+          `;
+          document.body.appendChild(menu);
 
-        const unmuteBtn = document.createElement("button");
-        unmuteBtn.textContent = "🔊";
-        unmuteBtn.title = "Unmute";
-        unmuteBtn.className = "user-action-btn";
-        unmuteBtn.onclick = (e) => {
-          e.stopPropagation();
-          ws.send(JSON.stringify({ type: "admin", action: "unmute", user: user.nick }));
-        };
-        li.appendChild(unmuteBtn);
+          // Handle menu actions
+          menu.onclick = (evt) => {
+            evt.stopPropagation();
+            const action = evt.target.dataset.action;
+            if (action) {
+              ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+              menu.remove();
+            }
+          };
 
-        const kickBtn = document.createElement("button");
-        kickBtn.textContent = "🚫";
-        kickBtn.title = "Kick";
-        kickBtn.className = "user-action-btn";
-        kickBtn.onclick = (e) => {
-          e.stopPropagation();
-          ws.send(JSON.stringify({ type: "admin", action: "kick", user: user.nick }));
+          // Close menu on outside click
+          document.addEventListener("mousedown", function handler(ev) {
+            if (!menu.contains(ev.target)) {
+              menu.remove();
+              document.removeEventListener("mousedown", handler);
+            }
+          });
         };
-        li.appendChild(kickBtn);
+        li.style.position = "relative";
+        li.insertBefore(moreBtn, li.firstChild);
       }
       userList.appendChild(li);
     });

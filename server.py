@@ -24,10 +24,10 @@ COLOR_PALETTE = [
     "#8a2be2", "#ff4500", "#228b22", "#00bfff", "#ff69b4"
 ]
 
-
 async def notify_users():
     user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
-    message = json.dumps({"type": "users", "users": user_list})
+    message = json.dumps({"type": "users", "users": user_list, "muted": list(muted)})
+
     to_remove = set()
     tasks = []
     for client in clients:
@@ -73,8 +73,8 @@ async def chat_handler(websocket):
                 continue
             if msg_type == "join":
                 peer_ip = websocket.remote_address[0]
-                if peer_ip == "loaclhost":
-                    await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP}))
+                if peer_ip == "localhost":
+                    await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "muted": list(muted)}))
                     continue
                 color = random.choice(COLOR_PALETTE)
                 new_nick = get_unique_nick(nick)
@@ -84,13 +84,12 @@ async def chat_handler(websocket):
                 users[websocket] = {"nick": new_nick, "color": color, "is_admin": is_admin}
                 await notify_users()
                 await websocket.send(json.dumps({"type": "nick-update", "nick": new_nick}))
-                await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin}))
+                await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin, "muted": list(muted)}))
                 await websocket.send(json.dumps({
                     "type": "history-available",
                     "available": bool(chat_history)
                 }))
                 continue
-            
             if msg_type == "admin":
                 peer_ip = websocket.remote_address[0]
                 if peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost")):
@@ -114,13 +113,16 @@ async def chat_handler(websocket):
                         for ws, info in users.items():
                             if info["nick"] == user_to_mute:
                                 muted.add(user_to_mute)
+                                await notify_users()
                                 await ws.send(json.dumps({"type": "muted"}))
                     elif action == "unmute":
                         user_to_unmute = data.get("user")
                         muted.discard(user_to_unmute)
                         for ws, info in users.items():
                             if info["nick"] == user_to_unmute:
+                                await notify_users()
                                 await ws.send(json.dumps({"type": "unmuted"}))
+                        
                     elif action == "kick":
                         user_to_kick = data.get("user")
                         for ws, info in list(users.items()):
