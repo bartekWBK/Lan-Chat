@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.5");
+console.log("v: 1.4.6");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -129,6 +129,8 @@ document.addEventListener("DOMContentLoaded", () => {
   fileListDiv.style.display = showFileLinks ? "block" : "none";
   if (showFileLinks) fetchFileList();
   updateClearFilesBtn();
+
+
 
   settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
 });
@@ -319,6 +321,18 @@ ws.onmessage = (event) => {
       fetchFileList();
     }
   }
+  if (data.type === "kicked") {
+    if (data.reason === "duplicate") {
+      alert("You have been disconnected because you opened another tab with this nickname.");
+    } else if (data.reason === "kicked") {
+      alert("You have been kicked from the chat.");
+    } else if (data.reason === "banned") {
+      alert("You have been BANNED from the chat.");
+    } else {
+      alert("You have been kicked but idk why tbh from the chat.");
+    }
+    window.location.reload();
+  }
   if (data.type === "IP") {
     const ip = document.getElementById("LAN");
     let mutedUsers = new Set(data.muted || []);
@@ -329,6 +343,18 @@ ws.onmessage = (event) => {
     }
     is_admin = data.is_admin || false;
     updateClearFilesBtn();
+    const wipeBlacklistBtn = document.getElementById("wipe-blacklist-btn");
+    if (is_admin && wipeBlacklistBtn) {
+      wipeBlacklistBtn.style.display = "block";
+      wipeBlacklistBtn.onclick = () => {
+        if (confirm("Are you sure you want to remove all IP bans?")) {
+          ws.send(JSON.stringify({ type: "admin", action: "wipe-blacklist" }));
+          alert("All blacklisted users have been removed.");
+        }
+      };
+    } else if (wipeBlacklistBtn) {
+      wipeBlacklistBtn.style.display = "none";
+    }
 
     if (currentUsers.length > 0) {
       userList.innerHTML = "";
@@ -366,6 +392,7 @@ ws.onmessage = (event) => {
               <button class="user-action-btn" data-action="mute">🔇 Mute</button>
               <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
               <button class="user-action-btn" data-action="kick">🚫 Kick</button>
+              <button class="user-action-btn" data-action="ban">⛔ Ban (IP)</button>
             `;
             document.body.appendChild(menu);
 
@@ -374,7 +401,11 @@ ws.onmessage = (event) => {
               evt.stopPropagation();
               const action = evt.target.dataset.action;
               if (action) {
-                ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+                if (action === "ban") {
+                  ws.send(JSON.stringify({ type: "admin", action: "ban", user: user.nick }));
+                } else {
+                  ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+                }
                 menu.remove();
               }
             };
@@ -410,10 +441,6 @@ ws.onmessage = (event) => {
     send.disabled = true;
     ws.send(JSON.stringify({ type: "check" }));
 
-  }
-  if (data.type === "kicked") {
-    alert("You have been kicked by the admin.");
-    window.location.reload();
   }
   if (data.type === "users") {
     currentUsers = data.users || [];
@@ -455,6 +482,7 @@ ws.onmessage = (event) => {
             <button class="user-action-btn" data-action="mute">🔇 Mute</button>
             <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
             <button class="user-action-btn" data-action="kick">🚫 Kick</button>
+            <button class="user-action-btn" data-action="ban">⛔ Ban (IP)</button>
           `;
           document.body.appendChild(menu);
 
@@ -463,7 +491,11 @@ ws.onmessage = (event) => {
             evt.stopPropagation();
             const action = evt.target.dataset.action;
             if (action) {
-              ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+              if (action === "ban") {
+                ws.send(JSON.stringify({ type: "admin", action: "ban", user: user.nick }));
+              } else {
+                ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
+              }
               menu.remove();
             }
           };

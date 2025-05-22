@@ -810,7 +810,7 @@ body.dark .input-area select#code-lang {
 .admin-user-menu {
   position: absolute;
   z-index: 1000;
-  left: -120px;
+  left: 0px;
   top: 0;
   background: #fff;
   border: 1px solid #bbb;

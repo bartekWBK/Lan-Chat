@@ -14,6 +14,7 @@ chat_history = []
 clients = set()
 users = dict()
 muted = set()
+blacklist = set()
 os.makedirs("uploads", exist_ok=True)
 
 
@@ -26,7 +27,7 @@ COLOR_PALETTE = [
 
 async def notify_users():
     user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
-    message = json.dumps({"type": "users", "users": user_list, "muted": list(muted)})
+    message = json.dumps({"type": "users", "users": user_list, "muted": list(muted), "blacklist": list(blacklist)})
 
     to_remove = set()
     tasks = []
@@ -55,6 +56,11 @@ def get_unique_nick(base_nick):
 
 
 async def chat_handler(websocket):
+    peer_ip = websocket.remote_address[0]
+    if peer_ip in blacklist:
+        await websocket.send(json.dumps({"type": "kicked", "reason": "banned"}))
+        await websocket.close()
+        return
     clients.add(websocket)
     try:
         async for message in websocket:
@@ -82,6 +88,17 @@ async def chat_handler(websocket):
 
                 is_admin = peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
                 users[websocket] = {"nick": new_nick, "color": color, "is_admin": is_admin}
+                
+                for ws in list(users.keys()):
+                    if ws != websocket and users[ws]["nick"] == new_nick:
+                        try:
+                            await ws.send(json.dumps({"type": "kicked", "reason": "duplicate"}))
+                        except:
+                            pass
+                        await ws.close()
+                        users.pop(ws, None)
+                        clients.discard(ws)
+                            
                 await notify_users()
                 await websocket.send(json.dumps({"type": "nick-update", "nick": new_nick}))
                 await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin, "muted": list(muted)}))
@@ -94,6 +111,23 @@ async def chat_handler(websocket):
                 peer_ip = websocket.remote_address[0]
                 if peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost")):
                     action = data.get("action")
+                    if action == "ban":
+                        user_to_ban = data.get("user")
+                        for ws, info in list(users.items()):
+                            if info["nick"] == user_to_ban:
+                                ban_ip = ws.remote_address[0]
+                                blacklist.add(ban_ip)
+                                await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
+                                await ws.close()
+                                users.pop(ws, None)
+                                clients.discard(ws)
+                                break
+                        await notify_users()
+                    elif action == "unban":
+                        ip_to_unban = data.get("ip")
+                        blacklist.discard(ip_to_unban)
+                    elif action == "wipe-blacklist":
+                        blacklist.clear()
                     if action == "clear-files":
                         deleted_files = []
                         for fname in os.listdir("uploads"):
@@ -127,7 +161,7 @@ async def chat_handler(websocket):
                         user_to_kick = data.get("user")
                         for ws, info in list(users.items()):
                             if info["nick"] == user_to_kick:
-                                await ws.send(json.dumps({"type": "kicked"}))
+                                await ws.send(json.dumps({"type": "kicked", "reason": "kicked"}))
                                 await ws.close()
                                 break
 
@@ -164,7 +198,8 @@ async def chat_handler(websocket):
         clients.discard(websocket)
         users.pop(websocket, None)
         await notify_users()
-
+def get_connections_by_nick(nick):
+    return [ws for ws, info in users.items() if info["nick"] == nick]
     
 def get_server_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
