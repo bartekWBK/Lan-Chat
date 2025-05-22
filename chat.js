@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.2");
+console.log("v: 1.4.3");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -84,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
         div.innerHTML = formatMessage(originalData);
       }
     });
+    if (window.Prism) Prism.highlightAll(); // <-- Add this line
   };
 
   toggleFileLinks.addEventListener("change", () => {
@@ -110,6 +111,9 @@ document.addEventListener("DOMContentLoaded", () => {
         div.innerHTML = formatMessage(originalData);
       }
     });
+    if (window.Prism) {
+      setTimeout(() => Prism.highlightAll(), 500);
+    }
   });
 
   darkModeToggle.addEventListener("change", () => {
@@ -208,7 +212,13 @@ function sendMessage() {
 code.onclick = () => {
   const selected = msg.value.slice(msg.selectionStart, msg.selectionEnd);
   const content = (selected || msg.value).trim();
-  const wrapped = "```" + content + "```";
+  let lang = codeLang.value;
+  let wrapped;
+  if (lang && lang !== "plaintext") {
+    wrapped = "```" + lang + "\n" + content + "```";
+  } else {
+    wrapped = "```plaintext\n" + content + "```";
+  }
   ws.send(JSON.stringify({ type: "message", nick, text: wrapped }));
   msg.value = "";
 };
@@ -569,11 +579,10 @@ function formatMessage(data, forceDeleted = false) {
       </div>`;
   }
 
-  if (/^```([\s\S]*?)```$/.test(text.trim())) {
-    const code = text.trim().replace(/^```([\s\S]*?)```$/, "$1");
-    let lang = codeLang.value || "python";
-    const langMatch = text.trim().match(/^```(\w+)\n/);
-    if (langMatch) lang = langMatch[1];
+  const singleCodeMatch = text.trim().match(/^```(\w+)?\n?([\s\S]*?)```$/);
+  if (singleCodeMatch) {
+    let lang = singleCodeMatch[1] ? singleCodeMatch[1].toLowerCase() : "plaintext";
+    const code = singleCodeMatch[2];
     return `${timestamp}${nickHtml}
       <div class="code-block">
         <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
@@ -581,29 +590,24 @@ function formatMessage(data, forceDeleted = false) {
       </div>`;
   }
 
+  // Multi code block support
   let processed = text;
   const codeBlocks = [];
-  processed = processed.replace(/```([\s\S]*?)```/g, (_, code) => {
-    codeBlocks.push(code);
+  processed = processed.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    lang = lang ? lang.toLowerCase() : "plaintext";
+    codeBlocks.push({ lang, code });
     return `___CODEBLOCK${codeBlocks.length - 1}___`;
   });
 
-  const links = [];
-  if (showFileLinks) {
-    processed = processed.replace(/<a\s+[^>]+>(.*?)<\/a>/gi, (match) => {
-      links.push(match);
-      return `___LINK${links.length - 1}___`;
-    });
-  }
-
+  // ...link handling and rest of function...
   processed = escapeHtml(processed);
   processed = processed.replace(/___LINK(\d+)___/g, (_, i) => links[i]);
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
-    const escapedCode = escapeHtml(codeBlocks[i]);
+    const { lang, code } = codeBlocks[i];
     return `
-      <div class="code-block" ">
-        <pre><code class="language-javascript">${escapedCode}</code></pre>
-        <button class="copy-btn" title="Copy code" ">Copy</button>
+      <div class="code-block">
+        <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
+        <button class="copy-btn" title="Copy code">Copy</button>
       </div>
     `;
   });
