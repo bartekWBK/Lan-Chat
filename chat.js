@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.6");
+console.log("v: 1.4.6.1");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -137,12 +137,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
+
 const recoverBtn = document.getElementById("recover-chat-btn");
-if (recoverBtn) recoverBtn.style.display = "none";
-document.getElementById("recover-chat-btn").onclick = function () {
-  ws.send(JSON.stringify({ type: "get-history" }));
-  this.style.display = "none";
-};
+const closeRecoverBtn = document.getElementById("close-recover-btn");
+
+if (recoverBtn) {
+  recoverBtn.addEventListener("click", () => {
+    ws.send(JSON.stringify({ type: "get-history" }));
+    recoverBtn.style.display = "none";
+  });
+}
+
+if (closeRecoverBtn) {
+  closeRecoverBtn.addEventListener("click", (e) => {
+    e.stopPropagation(); 
+    recoverBtn.style.display = "none";
+  });
+}
 
 function isAdmin() {
   return is_admin;
@@ -238,7 +249,7 @@ ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   if (window.Prism) Prism.highlightAll();
   if (data.type === "history-available") {
-    if (recoverBtn) recoverBtn.style.display = data.available ? "block" : "none";
+    if (recoverBtn) recoverBtn.style.display = data.available ? "inline-block" : "none";
     return;
   }
   if (data.type === "history") {

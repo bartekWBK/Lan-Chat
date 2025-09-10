@@ -5,10 +5,13 @@ import socket
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import threading
 from datetime import datetime, timezone
-import cgi
 import os
 import uuid
 import random
+from email.parser import BytesParser
+from email.policy import default as default_policy
+from urllib.parse import unquote
+
 
 chat_history = []
 clients = set()
@@ -16,6 +19,8 @@ users = dict()
 muted = set()
 blacklist = set()
 os.makedirs("uploads", exist_ok=True)
+last_color_change = {}
+COLOR_COOLDOWN = 5
 
 
 COLOR_PALETTE = [
@@ -43,7 +48,7 @@ async def notify_users():
     for client in to_remove:
         clients.discard(client)
         users.pop(client, None)
-    
+
 def get_unique_nick(base_nick):
     existing = set(u["nick"] for u in users.values())
     if base_nick not in existing:
@@ -52,8 +57,6 @@ def get_unique_nick(base_nick):
     while f"{base_nick}_{i}" in existing:
         i += 1
     return f"{base_nick}_{i}"
-
-
 
 async def chat_handler(websocket):
     peer_ip = websocket.remote_address[0]
@@ -68,7 +71,6 @@ async def chat_handler(websocket):
             nick = data.get("nick", "Unknown")
             msg_type = data.get("type")
             if msg_type == "get-history":
-                # Send chat history to the requester only
                 await websocket.send(json.dumps({
                     "type": "history",
                     "messages": chat_history
@@ -84,11 +86,9 @@ async def chat_handler(websocket):
                     continue
                 color = random.choice(COLOR_PALETTE)
                 new_nick = get_unique_nick(nick)
-                users[websocket] = {"nick": new_nick, "color": color}
-
                 is_admin = peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
                 users[websocket] = {"nick": new_nick, "color": color, "is_admin": is_admin}
-                
+
                 for ws in list(users.keys()):
                     if ws != websocket and users[ws]["nick"] == new_nick:
                         try:
@@ -169,10 +169,20 @@ async def chat_handler(websocket):
                 continue
 
             if msg_type == "color":
+                now = datetime.now().timestamp()
+                last_change = last_color_change.get(websocket, 0)
+                if now - last_change < COLOR_COOLDOWN:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": f"Please wait {COLOR_COOLDOWN} seconds before changing color again."
+                    }))
+                    continue
                 color = data.get("color", "#28a745")
                 users[websocket]["color"] = color
+                last_color_change[websocket] = now
                 await notify_users()
                 continue
+
 
             if msg_type == "message":
                 if users[websocket]["nick"] in muted:
@@ -188,7 +198,6 @@ async def chat_handler(websocket):
                 }
                 final = json.dumps(msg_obj)
                 chat_history.append(msg_obj)
-                # Limit history to last 200 messages
                 if len(chat_history) > 200:
                     chat_history.pop(0)
                 await asyncio.gather(*[asyncio.create_task(client.send(final)) for client in clients])
@@ -198,9 +207,7 @@ async def chat_handler(websocket):
         clients.discard(websocket)
         users.pop(websocket, None)
         await notify_users()
-def get_connections_by_nick(nick):
-    return [ws for ws, info in users.items() if info["nick"] == nick]
-    
+
 def get_server_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -218,18 +225,18 @@ SERVER_IP = get_server_ip()
 class CustomHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/file-list":
-            files = []
-            for fname in os.listdir("uploads"):
-                if os.path.isfile(os.path.join("uploads", fname)):
-                    files.append(fname)
+            files = [
+                fname for fname in os.listdir("uploads")
+                if os.path.isfile(os.path.join("uploads", fname))
+            ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps(files).encode("utf-8"))
             return
+
         if self.path.startswith("/uploads/"):
-            file_path = self.path.lstrip("/")
-            file_path = os.path.normpath(file_path)
+            file_path = os.path.normpath(unquote(self.path.lstrip("/")))
             if os.path.exists(file_path):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
@@ -249,7 +256,7 @@ class CustomHandler(SimpleHTTPRequestHandler):
                 self.send_error(404, "File not found")
                 return
 
-        if self.path == "/" or self.path == "/index.html":
+        if self.path in ("/", "/index.html"):
             with open("index.html", "r", encoding="utf-8") as f:
                 content = f.read()
             content = content.replace(
@@ -265,36 +272,47 @@ class CustomHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/upload":
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={'REQUEST_METHOD': 'POST'}
-            )
-            fileitem = form['file']
-            if fileitem.filename:
-                # Use the original filename, but sanitize it!
-                filename = os.path.basename(fileitem.filename)
-                filepath = os.path.join("uploads", filename)
-                # If file exists, add a suffix to avoid overwrite
-                base, ext = os.path.splitext(filename)
-                i = 1
-                while os.path.exists(filepath):
-                    filename = f"{base}_{i}{ext}"
-                    filepath = os.path.join("uploads", filename)
-                    i += 1
-                with open(filepath, 'wb') as f:
-                    f.write(fileitem.file.read())
-                self.send_response(200)
+            content_length = int(self.headers.get('Content-Length', 0))
+            content_type = self.headers.get('Content-Type', "")
+            if "multipart/form-data" not in content_type:
+                self.send_response(400)
                 self.end_headers()
-                self.wfile.write(filename.encode())
-            else:
+                self.wfile.write(b"Invalid content type")
+                return
+
+            body = self.rfile.read(content_length)
+            headers = f"Content-Type: {content_type}\r\n\r\n".encode() + body
+            msg = BytesParser(policy=default_policy).parsebytes(headers)
+
+            if not msg.is_multipart():
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(b"No file uploaded")
+                return
+
+            for part in msg.iter_parts():
+                if part.get_filename():
+                    filename = os.path.basename(part.get_filename())
+                    filepath = os.path.join("uploads", filename)
+                    base, ext = os.path.splitext(filename)
+                    i = 1
+                    while os.path.exists(filepath):
+                        filename = f"{base}_{i}{ext}"
+                        filepath = os.path.join("uploads", filename)
+                        i += 1
+                    with open(filepath, "wb") as f:
+                        f.write(part.get_payload(decode=True))
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(filename.encode())
+                    return
+
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"No file uploaded")
         else:
             self.send_response(404)
             self.end_headers()
-
 
 def start_http_server():
     httpd = ThreadingHTTPServer(("0.0.0.0", 8000), CustomHandler)
