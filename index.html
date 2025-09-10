@@ -15,6 +15,7 @@
   <div id="sidebar">
     <h2>Users</h2>
     <ul id="users"></ul>
+
     <button id="recover-chat-btn" style="margin-bottom:10px; display:none; position:relative; padding-right:22px;">
       Recover Chat
       <span id="close-recover-btn" 
@@ -38,7 +39,8 @@
       </label><br>
       <label>
         Nick color:
-        <input type="color" id="custom-nick-color"  style="vertical-align: middle;">
+        <input type="color" id="custom-nick-color" style="vertical-align: middle;">
+        <button id="set-color-btn" style="margin-left:5px;">Set</button>
       </label>
     </div>
   </div>
@@ -75,6 +77,25 @@
   
 </div>
   
+
+  <div id="error-message" style="
+  display:none;
+  position:fixed;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  background:#ffdddd;
+  color:#900;
+  border:1px solid #900;
+  padding:8px 12px;
+  border-radius:5px;
+  font-size:0.9em;
+  z-index:1000;
+"></div>
+
+
+
+
 
   <script src="chat.js"></script>
 

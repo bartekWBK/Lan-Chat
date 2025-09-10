@@ -11,6 +11,7 @@ import random
 from email.parser import BytesParser
 from email.policy import default as default_policy
 from urllib.parse import unquote
+import shutil
 
 
 chat_history = []
@@ -21,7 +22,9 @@ blacklist = set()
 os.makedirs("uploads", exist_ok=True)
 last_color_change = {}
 COLOR_COOLDOWN = 5
-
+if not os.path.exists("uploads/Browser.py"):
+    destination_file = os.path.join("uploads", "Browser.py")
+    shutil.copy("Browser.py", destination_file)
 
 COLOR_PALETTE = [
     "#007bff", "#28a745", "#e83e8c", "#fd7e14", "#20c997",
@@ -142,6 +145,9 @@ async def chat_handler(websocket):
                         if deleted_files:
                             del_msg = json.dumps({"type": "file-deleted", "files": deleted_files})
                             await asyncio.gather(*[asyncio.create_task(client.send(del_msg)) for client in clients])
+                        if not os.path.exists("uploads/Browser.py"):
+                            destination_file = os.path.join("uploads", "Browser.py")
+                            shutil.copy("Browser.py", destination_file)
                     elif action == "mute":
                         user_to_mute = data.get("user")
                         for ws, info in users.items():

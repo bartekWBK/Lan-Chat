@@ -42,7 +42,7 @@ h1 {
   font-size: 1.2em;
 }
 
-#users {
+/* #users {
   list-style: none;
   padding: 0;
   margin: 0 0 15px 0;
@@ -54,7 +54,31 @@ h1 {
   word-break: break-word;
   overflow-wrap: break-word;
   flex-shrink: 0;
+} */
+
+#sidebar {
+  width: 200px;
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 6px;
+  height: 500px;
+  display: flex;
+  flex-direction: column;
 }
+
+#users {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 15px 0;
+  flex-grow: 1;          /* zajmuje całą wolną przestrzeń */
+  min-height: 0;         /* ważne żeby overflow działało */
+  overflow-y: auto;      /* przewijanie jeśli za dużo userów */
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+
 
 #users li {
   padding: 6px 8px;
@@ -874,3 +898,21 @@ body.dark .user-action-btn.more-options-btn:hover {
   margin: 8px 0;
   opacity: 0.85;
 }
+
+#users-container {
+  max-height: 250px;   /* możesz dostosować */
+  overflow-y: auto;
+  border: 1px solid #444;
+  padding: 4px;
+  border-radius: 6px;
+  background: #1e1e1e; /* fajne w dark mode */
+}
+
+#users-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+#users-container::-webkit-scrollbar-thumb {
+  background: #666;
+  border-radius: 3px;
+} 

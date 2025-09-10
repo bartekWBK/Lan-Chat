@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.6.1");
+console.log("v: 1.4.6.2");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -32,6 +32,16 @@ let showTimestamps = localStorage.getItem("showTimestamps") === "true";
 let showFileLinks = localStorage.getItem("showFileLinks") === "true";
 let customNickColor = localStorage.getItem("customNickColor") || "";
 let isAlive = true;
+
+function showError(msg) {
+  const box = document.getElementById("error-message");
+  if (!box) return;
+  box.textContent = msg;
+  box.style.display = "block";
+  setTimeout(() => {
+    box.style.display = "none";
+  }, 4000);
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   showTimestamps = localStorage.getItem("showTimestamps") === "true";
@@ -84,7 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
         div.innerHTML = formatMessage(originalData);
       }
     });
-    if (window.Prism) Prism.highlightAll(); // <-- Add this line
+    if (window.Prism) Prism.highlightAll();
   };
 
   toggleFileLinks.addEventListener("change", () => {
@@ -101,10 +111,16 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
   });
 
-  customNickColorInput.addEventListener("input", () => {
+
+let setColorBtn = document.getElementById("set-color-btn");
+let colorInput = document.getElementById("custom-nick-color");
+
+if (setColorBtn) {
+  setColorBtn.addEventListener("click", () => {
+    const color = colorInput.value;
     customNickColor = customNickColorInput.value;
     localStorage.setItem("customNickColor", customNickColor);
-    ws.send(JSON.stringify({ type: "color", color: customNickColor }));
+    ws.send(JSON.stringify({ type: "color", color }));
     [...chat.children].forEach(div => {
       const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
       if (originalData) {
@@ -114,7 +130,34 @@ document.addEventListener("DOMContentLoaded", () => {
     if (window.Prism) {
       setTimeout(() => Prism.highlightAll(), 500);
     }
+    if (setColorBtn) {
+      setColorBtn.disabled = true;
+      setColorBtn.style.opacity = "0.5";
+      setTimeout(() => {
+        setColorBtn.disabled = false;
+        setColorBtn.style.opacity = "1";
+      }, 5000); 
+    }
   });
+}
+
+
+
+
+  // customNickColorInput.addEventListener("input", () => {
+  //   customNickColor = customNickColorInput.value;
+  //   localStorage.setItem("customNickColor", customNickColor);
+  //   ws.send(JSON.stringify({ type: "color", color: customNickColor }));
+  //   [...chat.children].forEach(div => {
+  //     const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+  //     if (originalData) {
+  //       div.innerHTML = formatMessage(originalData);
+  //     }
+  //   });
+  //   if (window.Prism) {
+  //     setTimeout(() => Prism.highlightAll(), 500);
+  //   }
+  // });
 
   darkModeToggle.addEventListener("change", () => {
     localStorage.setItem("darkMode", darkModeToggle.checked);
@@ -248,6 +291,19 @@ ws.onopen = () => {
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   if (window.Prism) Prism.highlightAll();
+    if (data.type === "error") {
+      const errorBox = document.getElementById("error-message");
+      const setColorBtn = document.getElementById("set-color-btn");
+      if (errorBox) {
+        errorBox.textContent = data.message;
+        errorBox.style.display = "block";
+        setTimeout(() => {
+          errorBox.style.display = "none";
+        }, 3000); 
+      }
+
+
+  }
   if (data.type === "history-available") {
     if (recoverBtn) recoverBtn.style.display = data.available ? "inline-block" : "none";
     return;
@@ -798,6 +854,8 @@ window.downloadFileWithProgress = function(url, filename) {
       return read();
     })
     .catch(err => {
+      progressDiv.textContent = "";
+      showError("Download failed! Arcabit blocked downloading. If Arcabit ssie pałe to wejdź w pliki i pobierz Browser");
       progressDiv.textContent = "Download failed!";
       setTimeout(() => progressDiv.style.display = "none", 2000);
     });
