@@ -5,7 +5,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.6.2");
+console.log("v: 1.4.7");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -42,6 +42,44 @@ function showError(msg) {
     box.style.display = "none";
   }, 4000);
 }
+
+function createFileElement(filename, url) {
+  const fileExt = filename.split('.').pop().toLowerCase();
+  const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
+
+  const container = document.createElement("div");
+  container.classList.add("file-card");
+
+  // File link
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.textContent = filename;
+  link.classList.add("file-download-btn");
+  container.appendChild(link);
+
+  // If it's an image and previews are enabled, show <img>
+  if (previewEnabled && ["jpg", "jpeg", "png", "gif", "webp"].includes(fileExt)) {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = filename;
+    img.style.maxWidth = "200px";
+    img.style.maxHeight = "200px";
+    img.style.display = "block";
+    img.style.marginTop = "8px";
+    img.style.borderRadius = "6px";
+    img.style.cursor = "pointer";
+
+    img.addEventListener("click", () => {
+      window.downloadFileWithProgress(url, filename);
+    });
+
+    container.appendChild(img);
+  }
+
+  return container;
+}
+
 
 document.addEventListener("DOMContentLoaded", () => {
   showTimestamps = localStorage.getItem("showTimestamps") === "true";
@@ -319,6 +357,7 @@ ws.onmessage = (event) => {
     });
     chat.scrollTop = chat.scrollHeight;
     if (window.Prism) Prism.highlightAll();
+    updateDeletedFilesInChat();
     return;
   }
   if (data.type === "files-cleared" || data.type === "file-deleted") {
@@ -410,6 +449,7 @@ ws.onmessage = (event) => {
     }
     is_admin = data.is_admin || false;
     updateClearFilesBtn();
+
     const wipeBlacklistBtn = document.getElementById("wipe-blacklist-btn");
     if (is_admin && wipeBlacklistBtn) {
       wipeBlacklistBtn.style.display = "block";
@@ -708,11 +748,53 @@ function formatMessage(data, forceDeleted = false) {
     getUserColor(data.nick);
   const nickHtml = `<span class="chat-nick" style="color:${nickColor}">${escapeHtml(data.nick)}</span>:`;
 
+  // const fileLinkMatch = text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
+  // if (fileLinkMatch) {
+  //   const url = fileLinkMatch[1];
+  //   const filename = fileLinkMatch[2];
+  //   const isDeleted = forceDeleted || deletedFiles.has(filename);
+  //   return `${timestamp}${nickHtml}
+  //     <div class="file-card${isDeleted ? ' file-deleted' : ''}">
+  //       <span class="file-icon">📄</span>
+  //       <span class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
+  //       ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
+  //       <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
+  //     </div>`;
+  // }
   const fileLinkMatch = text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
-  if (fileLinkMatch) {
-    const url = fileLinkMatch[1];
-    const filename = fileLinkMatch[2];
-    const isDeleted = forceDeleted || deletedFiles.has(filename);
+if (fileLinkMatch) {
+  const url = fileLinkMatch[1];
+  const filename = fileLinkMatch[2];
+  const isDeleted = forceDeleted || deletedFiles.has(filename);
+
+  const fileExt = filename.split('.').pop().toLowerCase();
+  const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
+  const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
+
+  if (previewEnabled && isImage) {
+    return `${timestamp}${nickHtml}
+      <div class="file-card${isDeleted ? ' file-deleted' : ''}" 
+          style="flex-direction:column; align-items:center; text-align:center; padding:10px; position:relative;">
+
+        <img src="${url}" alt="${escapeHtml(filename)}" 
+            style="max-width:220px; max-height:220px; border-radius:6px; margin-bottom:10px; cursor:pointer;" 
+            onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">
+
+        <!-- Zoom button overlay -->
+        <button class="zoom-btn" onclick="openImageModal('${url}', '${escapeHtml(filename)}')">🔍</button>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-top:6px;">
+          <span class="file-name" style="flex-grow:1; text-align:left; ${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">
+            ${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}
+          </span>
+          ${!isDeleted ? `<button class="file-download-btn" 
+                            onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')" 
+                            style="margin-left:10px;">Download</button>` : ''}
+        </div>
+        <div class="download-progress" id="download-progress-${escapeHtml(filename)}" 
+            style="display:none;margin-top:4px;font-size:0.95em;color:#28a745; text-align:left;"></div>
+      </div>`;
+} else {
     return `${timestamp}${nickHtml}
       <div class="file-card${isDeleted ? ' file-deleted' : ''}">
         <span class="file-icon">📄</span>
@@ -720,7 +802,9 @@ function formatMessage(data, forceDeleted = false) {
         ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
         <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
       </div>`;
-  }
+}
+
+}
 
   const singleCodeMatch = text.trim().match(/^```(\w+)?\n?([\s\S]*?)```$/);
   if (singleCodeMatch) {
@@ -733,7 +817,6 @@ function formatMessage(data, forceDeleted = false) {
       </div>`;
   }
 
-  // Multi code block support
   let processed = text;
   const codeBlocks = [];
   processed = processed.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
@@ -742,7 +825,6 @@ function formatMessage(data, forceDeleted = false) {
     return `___CODEBLOCK${codeBlocks.length - 1}___`;
   });
 
-  // ...link handling and rest of function...
   processed = escapeHtml(processed);
   processed = processed.replace(/___LINK(\d+)___/g, (_, i) => links[i]);
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
@@ -971,6 +1053,124 @@ function adjustMainChatWidth() {
     mainChat.style.width = "";
   }
 }
+
+const toggleImagePreview = document.getElementById("toggle-image-preview");
+if (toggleImagePreview) {
+  toggleImagePreview.addEventListener("change", () => {
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+  });
+}
+
+window.openImageModal = function(url, filename) {
+  const modal = document.getElementById("image-modal");
+  const modalImg = document.getElementById("modal-img");
+  modal.style.display = "flex";
+  modalImg.src = url;
+  modalImg.alt = filename;
+};
+
+window.closeImageModal = function() {
+  document.getElementById("image-modal").style.display = "none";
+};
+
+
+let imageList = [];
+let currentIndex = 0;
+let zoomLevel = 1;
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0;
+let imgOffsetX = 0, imgOffsetY = 0;
+
+window.openImageModal = function(url, filename) {
+  const modal = document.getElementById("image-modal");
+  const modalImg = document.getElementById("modal-img");
+
+  // collect all image URLs currently in chat, skipping deleted files
+  const images = [...document.querySelectorAll(".file-card img")].filter(img => {
+    const fname = img.alt || img.dataset.filename || "";
+    return !deletedFiles.has(fname);
+  });
+
+  imageList = images.map(img => img.src);
+  currentIndex = imageList.indexOf(url);
+
+  if (currentIndex === -1) return;
+
+  modal.style.display = "flex";
+  modalImg.src = url;
+  modalImg.alt = filename;
+
+  zoomLevel = 1;
+  imgOffsetX = imgOffsetY = 0;
+  modalImg.style.transform = `translate(0px, 0px) scale(1)`;
+};
+
+window.closeImageModal = function() {
+  const modal = document.getElementById("image-modal");
+  modal.style.display = "none";
+};
+
+// Close by clicking background
+document.getElementById("image-modal").addEventListener("click", (e) => {
+  if (e.target.id === "image-modal") {
+    closeImageModal();
+  }
+});
+
+window.navigateImage = function(direction) {
+  if (!imageList.length) return;
+  currentIndex = (currentIndex + direction + imageList.length) % imageList.length;
+  const modalImg = document.getElementById("modal-img");
+  modalImg.src = imageList[currentIndex];
+  zoomLevel = 1;
+  imgOffsetX = imgOffsetY = 0;
+  modalImg.style.transform = `translate(0px, 0px) scale(1)`;
+};
+
+// Zoom with wheel
+document.getElementById("modal-img").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  zoomLevel += e.deltaY < 0 ? 0.2 : -0.2;
+  if (zoomLevel < 1) zoomLevel = 1;
+  if (zoomLevel > 5) zoomLevel = 5;
+  e.target.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
+});
+
+// Reset zoom on double click
+document.getElementById("modal-img").addEventListener("dblclick", (e) => {
+  zoomLevel = 1;
+  imgOffsetX = imgOffsetY = 0;
+  e.target.style.transform = `translate(0px, 0px) scale(1)`;
+});
+
+// --- Drag to pan when zoomed ---
+const modalImg = document.getElementById("modal-img");
+
+modalImg.addEventListener("mousedown", (e) => {
+  if (zoomLevel <= 1) return; // no drag if not zoomed
+  isDragging = true;
+  dragStartX = e.clientX - imgOffsetX;
+  dragStartY = e.clientY - imgOffsetY;
+  modalImg.style.cursor = "grabbing";
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isDragging) return;
+  imgOffsetX = e.clientX - dragStartX;
+  imgOffsetY = e.clientY - dragStartY;
+  modalImg.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
+});
+
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  modalImg.style.cursor = zoomLevel > 1 ? "grab" : "default";
+});
+
 
 toggleFileLinks.addEventListener("change", adjustMainChatWidth);
 window.addEventListener("resize", adjustMainChatWidth);

@@ -26,6 +26,10 @@
     <button id="settings-btn">⚙ Settings</button>
     <div id="settings-panel" style="display: none;">
 <button id="wipe-blacklist-btn" style="display:none; margin-top:5px; font-size:0.92em; padding:3px 8px;">🧹 Wipe All Blacklisted Users</button>      <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />
+      <label>
+        <input type="checkbox" id="toggle-image-preview" checked />
+        Show image previews
+      </label><br>
       <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
       <br>
       <label>
@@ -77,6 +81,14 @@
   
 </div>
   
+<div id="image-modal" class="image-modal">
+  <span class="close-modal" onclick="closeImageModal()">✖</span>
+  <span class="prev-img" onclick="navigateImage(-1)">⟨</span>
+  <img id="modal-img" src="" alt="Preview">
+  <span class="next-img" onclick="navigateImage(1)">⟩</span>
+</div>
+
+
 
   <div id="error-message" style="
   display:none;

@@ -916,3 +916,93 @@ body.dark .user-action-btn.more-options-btn:hover {
   background: #666;
   border-radius: 3px;
 } 
+
+.file-card img {
+  border: 1px solid #ccc;
+  transition: transform 0.2s;
+}
+.file-card img:hover {
+  transform: scale(1.05);
+}
+
+/* Image modal */
+.image-modal {
+  display: none;
+  position: fixed;
+  z-index: 2000;
+  inset: 0; /* shorthand for top/right/bottom/left:0 */
+  background: rgba(0,0,0,0.9);
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* Modal image */
+.image-modal img {
+  max-width: 90%;
+  max-height: 90%;
+  cursor: grab;
+  transition: transform 0.15s ease;
+  touch-action: none;      /* disables native touch scrolling */
+  user-select: none;
+  -webkit-user-drag: none;
+  z-index: 2050;
+  will-change: transform;
+}
+
+/* Close button */
+.close-modal {
+  position: fixed; /* stays on top even while panning */
+  top: 18px;
+  right: 24px;
+  font-size: 28px;
+  color: white;
+  cursor: pointer;
+  z-index: 2100;
+  background: rgba(0,0,0,0.35);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+/* Zoom button */
+.zoom-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  padding: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 5;
+}
+.zoom-btn:hover {
+  background: rgba(0,0,0,0.8);
+}
+
+/* Prev/Next arrow buttons */
+.prev-img, .next-img {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 44px;
+  color: white;
+  cursor: pointer;
+  padding: 8px;
+  background: rgba(0,0,0,0.25);
+  border-radius: 50%;
+  user-select: none;
+  z-index: 2055;
+}
+.prev-img { left: 18px; }
+.next-img { right: 18px; }
+.prev-img:hover, .next-img:hover { background: rgba(0,0,0,0.55); }
+
+/* Active zoom */
+.image-modal img:active {
+  transform: scale(1.5);
+  cursor: zoom-out;
+}
+

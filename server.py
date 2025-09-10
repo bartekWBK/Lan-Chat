@@ -12,6 +12,21 @@ from email.parser import BytesParser
 from email.policy import default as default_policy
 from urllib.parse import unquote
 import shutil
+import logging
+LoggAllowed = False
+if LoggAllowed:
+    os.makedirs("Logs", exist_ok=True)
+    os.makedirs("Logs/AllLogs", exist_ok=True)
+    os.makedirs("Logs/IpLogs", exist_ok=True)
+
+if LoggAllowed:
+    logging.basicConfig(
+        filename="Logs/AllLogs/" + datetime.now().strftime("%Y-%m-%d   %H_%M    %S") + " (y-m-d h_m s) chat_log.txt",
+        level=logging.INFO,
+        format="%(asctime)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
 
 
 chat_history = []
@@ -64,6 +79,11 @@ def get_unique_nick(base_nick):
 async def chat_handler(websocket):
     peer_ip = websocket.remote_address[0]
     if peer_ip in blacklist:
+        if LoggAllowed:
+            timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+            ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+            with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                ip_log.write(f"!!Tried To Join But Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
         await websocket.send(json.dumps({"type": "kicked", "reason": "banned"}))
         await websocket.close()
         return
@@ -101,7 +121,6 @@ async def chat_handler(websocket):
                         await ws.close()
                         users.pop(ws, None)
                         clients.discard(ws)
-                            
                 await notify_users()
                 await websocket.send(json.dumps({"type": "nick-update", "nick": new_nick}))
                 await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin, "muted": list(muted)}))
@@ -109,6 +128,11 @@ async def chat_handler(websocket):
                     "type": "history-available",
                     "available": bool(chat_history)
                 }))
+                if LoggAllowed:
+                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                        ip_log.write(f"!!Joined     | {timestamp} | Nick: {new_nick} \n")
                 continue
             if msg_type == "admin":
                 peer_ip = websocket.remote_address[0]
@@ -120,6 +144,11 @@ async def chat_handler(websocket):
                             if info["nick"] == user_to_ban:
                                 ban_ip = ws.remote_address[0]
                                 blacklist.add(ban_ip)
+                                if LoggAllowed:
+                                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+                                    ip_log_path = os.path.join("Logs", "IpLogs", f"{ban_ip}.txt")
+                                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                                        ip_log.write(f"!!Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                 await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
                                 await ws.close()
                                 users.pop(ws, None)
@@ -167,6 +196,12 @@ async def chat_handler(websocket):
                         user_to_kick = data.get("user")
                         for ws, info in list(users.items()):
                             if info["nick"] == user_to_kick:
+                                if LoggAllowed:
+                                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+                                    peer_ip = websocket.remote_address[0]
+                                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                                        ip_log.write(f"!!Kicked     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                 await ws.send(json.dumps({"type": "kicked", "reason": "kicked"}))
                                 await ws.close()
                                 break
@@ -202,6 +237,13 @@ async def chat_handler(websocket):
                     "text": text,
                     "timestamp": timestamp
                 }
+                if LoggAllowed:
+                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+                    peer_ip = websocket.remote_address[0]
+                    logging.info(f"IP: {peer_ip} | Nick: {users[websocket]['nick']} | Message: {text}")
+                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                        ip_log.write(f"{timestamp} | Nick: {users[websocket]['nick']} | Message: {text}\n")
                 final = json.dumps(msg_obj)
                 chat_history.append(msg_obj)
                 if len(chat_history) > 200:
@@ -210,6 +252,13 @@ async def chat_handler(websocket):
     except:
         pass
     finally:
+        if LoggAllowed:
+            timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+            peer_ip = websocket.remote_address[0]
+            logging.info(f"Leaving | IP: {peer_ip} | Nick: {users[websocket]['nick']}")
+            ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+            with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                ip_log.write(f"!!Leaving       | {timestamp} | Nick: {users[websocket]['nick']}\n")
         clients.discard(websocket)
         users.pop(websocket, None)
         await notify_users()
