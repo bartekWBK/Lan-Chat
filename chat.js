@@ -1,11 +1,12 @@
 let currentUsers = [];
 let userColors = {};
+let adminUsers = new Set();
 let nick = "";
 let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.4.7");
+console.log("v: 1.4.8.5");
 let lang = "javascript";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
@@ -13,7 +14,6 @@ const chat = document.getElementById("chat");
 const msg = document.getElementById("msg");
 const send = document.getElementById("send");
 const code = document.getElementById("code");
-const settingsBtn = document.getElementById("settings-btn");
 const settingsPanel = document.getElementById("settings-panel");
 const toggleTimestamps = document.getElementById("toggle-timestamps");
 const toggleFileLinks = document.getElementById("toggle-file-links");
@@ -28,10 +28,32 @@ const fileUploadControls = document.getElementById("file-upload-controls");
 const clearFilesBtn = document.getElementById("clear-files-btn");
 const customNickColorInput = document.getElementById("custom-nick-color");
 let deletedFiles = new Set();
-let showTimestamps = localStorage.getItem("showTimestamps") === "true";
-let showFileLinks = localStorage.getItem("showFileLinks") === "true";
+if (localStorage.getItem("showTimestamps") === null) {
+  localStorage.setItem("showTimestamps", "true");
+}
+let showTimestamps = localStorage.getItem("showTimestamps") === "true";let showFileLinks = localStorage.getItem("showFileLinks") === "true";
 let customNickColor = localStorage.getItem("customNickColor") || "";
 let isAlive = true;
+
+if (localStorage.getItem("showReplyBtn") === null) {
+  localStorage.setItem("showReplyBtn", "false");
+}
+let showReplyBtn = localStorage.getItem("showReplyBtn") === "true";
+const toggleReplyBtn = document.getElementById("toggle-reply-btn");
+if (toggleReplyBtn) toggleReplyBtn.checked = showReplyBtn;
+
+if (toggleReplyBtn) {
+  toggleReplyBtn.addEventListener("change", () => {
+    showReplyBtn = toggleReplyBtn.checked;
+    localStorage.setItem("showReplyBtn", showReplyBtn);
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+  });
+}
 
 function showError(msg) {
   const box = document.getElementById("error-message");
@@ -50,7 +72,6 @@ function createFileElement(filename, url) {
   const container = document.createElement("div");
   container.classList.add("file-card");
 
-  // File link
   const link = document.createElement("a");
   link.href = url;
   link.target = "_blank";
@@ -58,7 +79,6 @@ function createFileElement(filename, url) {
   link.classList.add("file-download-btn");
   container.appendChild(link);
 
-  // If it's an image and previews are enabled, show <img>
   if (previewEnabled && ["jpg", "jpeg", "png", "gif", "webp"].includes(fileExt)) {
     const img = document.createElement("img");
     img.src = url;
@@ -79,7 +99,9 @@ function createFileElement(filename, url) {
 
   return container;
 }
-
+function isChatAtBottom(threshold = 60) {
+  return (chat.scrollHeight - chat.scrollTop - chat.clientHeight) < threshold;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   showTimestamps = localStorage.getItem("showTimestamps") === "true";
@@ -146,7 +168,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? "calc(100% - 420px)"
         : "calc(100% - 220px)";
     }
-    settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
+    // settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
   });
 
 
@@ -204,7 +226,25 @@ if (setColorBtn) {
     } else {
       document.body.classList.remove("dark");
     }
-    settingsPanel.style.color = darkModeToggle.checked ? "#eee" : "#333";
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+
+    let replyPreview = document.getElementById('reply-preview');
+    if (replyPreview) {
+      if (darkModeToggle.checked) {
+        replyPreview.style.background = '#333';
+        replyPreview.style.color = '#eee';
+        replyPreview.style.border = '1px solid #555';
+      } else {
+        replyPreview.style.background = '#f0f0f0';
+        replyPreview.style.color = '#000';
+        replyPreview.style.border = '1px solid #ccc';
+      }
+    }
   });
 
   fileListDiv.style.display = showFileLinks ? "block" : "none";
@@ -213,7 +253,7 @@ if (setColorBtn) {
 
 
 
-  settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
+  // settingsPanel.style.color = document.body.classList.contains("dark") ? "#eee" : "#333";
 });
 
 
@@ -299,8 +339,18 @@ send.onclick = sendMessage;
 function sendMessage() {
   const text = msg.value;
   if (!text.trim()) return;
-  ws.send(JSON.stringify({ type: "message", nick, text }));
+  let payload = { type: "message", nick, text };
+  if (msg.dataset.replyTo) {
+    payload.replyTo = msg.dataset.replyTo;
+  }
+  ws.send(JSON.stringify(payload));
   msg.value = "";
+  let replyPreview = document.getElementById('reply-preview');
+  if (replyPreview) replyPreview.remove();
+  msg.dataset.replyTo = "";
+  setTimeout(() => {
+    chat.scrollTop = chat.scrollHeight;
+  }, 50)
 }
 
 code.onclick = () => {
@@ -315,6 +365,9 @@ code.onclick = () => {
   }
   ws.send(JSON.stringify({ type: "message", nick, text: wrapped }));
   msg.value = "";
+  setTimeout(() => {
+    chat.scrollTop = chat.scrollHeight;
+  }, 50);
 };
 
 ws.onopen = () => {
@@ -403,12 +456,23 @@ ws.onmessage = (event) => {
     ws.send(JSON.stringify({ type: "check" }));
   }
   if (data.type === "message") {
+    const wasAtBottom = isChatAtBottom();
     const div = document.createElement("div");
     div.dataset.timestamp = data.timestamp;
     div.dataset.original = JSON.stringify(data);
     div.innerHTML = formatMessage(data);
     chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
+    const img = div.querySelector("img");
+    if (img) {
+      img.onload = () => {
+        if (wasAtBottom) chat.scrollTop = chat.scrollHeight;
+      };
+      if (img.complete && wasAtBottom) {
+        chat.scrollTop = chat.scrollHeight;
+      }
+    } else if (wasAtBottom) {
+      chat.scrollTop = chat.scrollHeight;
+    }
     if (window.Prism) Prism.highlightAll();
     if (
       data.text.startsWith("📎 <a href=") &&
@@ -466,6 +530,7 @@ ws.onmessage = (event) => {
     if (currentUsers.length > 0) {
       userList.innerHTML = "";
       let myColor = null;
+      console.log(adminUsers);
       currentUsers.forEach(user => {
         userColors[user.nick] = user.color;
         if (user.nick === nick) myColor = user.color;
@@ -479,6 +544,13 @@ ws.onmessage = (event) => {
           mutedIcon.title = "Muted";
           mutedIcon.style.marginRight = "4px";
           li.insertBefore(mutedIcon, li.firstChild);
+        }
+        if (adminUsers.has(user.nick)) {
+          const adminIcon = document.createElement("span");
+          adminIcon.textContent = "🛡️";
+          adminIcon.title = "Admin";
+          adminIcon.style.marginRight = "4px";
+          li.insertBefore(adminIcon, li.firstChild);
         }
         if (is_admin && user.nick !== nick) {
           const moreBtn = document.createElement("button");
@@ -552,6 +624,7 @@ ws.onmessage = (event) => {
   if (data.type === "users") {
     currentUsers = data.users || [];
     let mutedUsers = new Set(data.muted || []);
+    adminUsers = new Set(currentUsers.filter(u => u.is_admin).map(u => u.nick));
     userColors = {};
     userList.innerHTML = "";
     let myColor = null;
@@ -568,6 +641,14 @@ ws.onmessage = (event) => {
         mutedIcon.title = "Muted";
         mutedIcon.style.marginRight = "4px";
         li.insertBefore(mutedIcon, li.firstChild);
+      }
+      console.log(adminUsers);
+      if (adminUsers.has(user.nick)) {
+        const adminIcon = document.createElement("span");
+        adminIcon.textContent = "🛡️";
+        adminIcon.title = "Admin";
+        adminIcon.style.marginRight = "4px";
+        li.insertBefore(adminIcon, li.firstChild);
       }
 
       if (is_admin && user.nick !== nick) {
@@ -714,7 +795,16 @@ function uploadFile() {
     if (xhr.status === 200) {
       const savedName = xhr.responseText.trim();
       const url = `http://${IP}:8000/uploads/${encodeURIComponent(savedName)}`;
-      ws.send(JSON.stringify({ type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` }));
+      
+      let payload = { type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` };
+      if (msg.dataset.replyTo) {
+        payload.replyTo = msg.dataset.replyTo;
+      }
+      ws.send(JSON.stringify(payload));
+      msg.dataset.replyTo = "";
+      let replyPreview = document.getElementById('reply-preview');
+      if (replyPreview) replyPreview.remove();
+      // ws.send(JSON.stringify({ type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` }));
       fileInput.value = ""; 
       fileUploadLabel.textContent = "📎 Choose File";
       sendFileBtn.style.display = "none";
@@ -748,69 +838,85 @@ function formatMessage(data, forceDeleted = false) {
     getUserColor(data.nick);
   const nickHtml = `<span class="chat-nick" style="color:${nickColor}">${escapeHtml(data.nick)}</span>:`;
 
-  // const fileLinkMatch = text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
-  // if (fileLinkMatch) {
-  //   const url = fileLinkMatch[1];
-  //   const filename = fileLinkMatch[2];
-  //   const isDeleted = forceDeleted || deletedFiles.has(filename);
-  //   return `${timestamp}${nickHtml}
-  //     <div class="file-card${isDeleted ? ' file-deleted' : ''}">
-  //       <span class="file-icon">📄</span>
-  //       <span class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
-  //       ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
-  //       <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
-  //     </div>`;
-  // }
   const fileLinkMatch = text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
-if (fileLinkMatch) {
-  const url = fileLinkMatch[1];
-  const filename = fileLinkMatch[2];
-  const isDeleted = forceDeleted || deletedFiles.has(filename);
 
-  const fileExt = filename.split('.').pop().toLowerCase();
-  const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
-  const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
-
-  if (previewEnabled && isImage) {
-    return `${timestamp}${nickHtml}
-      <div class="file-card${isDeleted ? ' file-deleted' : ''}" 
-          style="flex-direction:column; align-items:center; text-align:center; padding:10px; position:relative;">
-
-        <img src="${url}" alt="${escapeHtml(filename)}" 
-            style="max-width:220px; max-height:220px; border-radius:6px; margin-bottom:10px; cursor:pointer;" 
-            onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">
-
-        <!-- Zoom button overlay -->
-        <button class="zoom-btn" onclick="openImageModal('${url}', '${escapeHtml(filename)}')">🔍</button>
-
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-top:6px;">
-          <span class="file-name" style="flex-grow:1; text-align:left; ${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">
-            ${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}
-          </span>
-          ${!isDeleted ? `<button class="file-download-btn" 
-                            onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')" 
-                            style="margin-left:10px;">Download</button>` : ''}
-        </div>
-        <div class="download-progress" id="download-progress-${escapeHtml(filename)}" 
-            style="display:none;margin-top:4px;font-size:0.95em;color:#28a745; text-align:left;"></div>
+  let replyHtml = "";
+  if (data.replyTo) {
+    let repliedMsg = null;
+    [...chat.children].forEach(div => {
+      const original = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (original && original.timestamp === data.replyTo) repliedMsg = original;
+    });
+    if (repliedMsg) {
+      let preview = "";
+      const fileMatch = repliedMsg.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
+      if (fileMatch) {
+        const url = fileMatch[1];
+        const filename = fileMatch[2];
+        const fileExt = filename.split('.').pop().toLowerCase();
+        const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
+        if (isImage) {
+          preview = `<img src="${url}" alt="${escapeHtml(filename)}" style="max-width:32px;max-height:32px;vertical-align:middle;margin-left:4px;border-radius:3px;border:1px solid #bbb;">`;
+        } else {
+          preview = `<span style="color:#888;font-size:0.85em;">[file]</span>`;
+        }
+      }
+      const isDark = document.body.classList.contains("dark");
+      const replyBg = isDark ? "#232323" : "#f7f7f7";
+      const replyBorder = isDark ? "#3399ff" : "#bbb";
+      const replyColor = isDark ? "#eee" : "#444";
+      const replyText = escapeHtml(repliedMsg.text);
+      const shortText = replyText.length > 60 ? replyText.slice(0, 60) + "..." : replyText;
+      replyHtml = `<br><div class="reply-preview-in-chat" style="background:${replyBg};border-left:2px solid ${replyBorder};padding:1px 3px;margin-bottom:1px;border-radius:2px;font-size:0.72em;line-height:1.1;">
+        <span style="color:${replyColor};">&#8594; replied to <b>${escapeHtml(repliedMsg.nick)}</b>: ${shortText}</span> ${preview}
       </div>`;
-} else {
-    return `${timestamp}${nickHtml}
-      <div class="file-card${isDeleted ? ' file-deleted' : ''}">
-        <span class="file-icon">📄</span>
-        <span class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
-        ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
-        <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
-      </div>`;
-}
+    }
+  }
 
-}
+  if (fileLinkMatch) {
+    const url = fileLinkMatch[1];
+    const filename = fileLinkMatch[2];
+    const isDeleted = forceDeleted || deletedFiles.has(filename);
+
+    const fileExt = filename.split('.').pop().toLowerCase();
+    const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
+    const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
+
+    if (previewEnabled && isImage) {
+      return `${replyHtml}${timestamp}${nickHtml}
+        <div class="file-card${isDeleted ? ' file-deleted' : ''}" 
+            style="flex-direction:column; align-items:center; text-align:center; padding:10px; position:relative;">
+          <img src="${url}" alt="${escapeHtml(filename)}" 
+              style="max-width:220px; max-height:220px; border-radius:6px; margin-bottom:10px; cursor:pointer;" 
+              onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">
+          <button class="zoom-btn" onclick="openImageModal('${url}', '${escapeHtml(filename)}')">🔍</button>
+          <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-top:6px;">
+            <span class="file-name" style="flex-grow:1; text-align:left; ${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">
+              ${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}
+            </span>
+            ${!isDeleted ? `<button class="file-download-btn" 
+                              onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')" 
+                              style="margin-left:10px;">Download</button>` : ''}
+          </div>
+          <div class="download-progress" id="download-progress-${escapeHtml(filename)}" 
+              style="display:none;margin-top:4px;font-size:0.95em;color:#28a745; text-align:left;"></div>
+        </div>`;
+    } else {
+      return `${replyHtml}${timestamp}${nickHtml}
+        <div class="file-card${isDeleted ? ' file-deleted' : ''}">
+          <span class="file-icon">📄</span>
+          <span class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
+          ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
+          <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
+        </div>`;
+    }
+  }
 
   const singleCodeMatch = text.trim().match(/^```(\w+)?\n?([\s\S]*?)```$/);
   if (singleCodeMatch) {
     let lang = singleCodeMatch[1] ? singleCodeMatch[1].toLowerCase() : "plaintext";
     const code = singleCodeMatch[2];
-    return `${timestamp}${nickHtml}
+    return `${replyHtml}${timestamp}${nickHtml}
       <div class="code-block">
         <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
         <button class="copy-btn" title="Copy code">Copy</button>
@@ -826,7 +932,6 @@ if (fileLinkMatch) {
   });
 
   processed = escapeHtml(processed);
-  processed = processed.replace(/___LINK(\d+)___/g, (_, i) => links[i]);
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
     const { lang, code } = codeBlocks[i];
     return `
@@ -837,7 +942,11 @@ if (fileLinkMatch) {
     `;
   });
 
-  return `${timestamp}${nickHtml} ${processed}`;
+  let replyBtn = "";
+  if (showReplyBtn) {
+    replyBtn = `<button class="reply-btn" data-timestamp="${data.timestamp}" style="margin-left:4px;font-size:0.75em;padding:1px 4px;background:#eee;border:1px solid #ccc;color:#444;border-radius:4px;cursor:pointer;line-height:1;">↩</button>`;
+  }
+  return `${replyHtml}${timestamp}${nickHtml} ${processed} ${replyBtn}`;
 }
 
 document.addEventListener('click', (e) => {
@@ -858,6 +967,62 @@ document.addEventListener('click', (e) => {
     } else {
       fallbackCopyText(textToCopy, button);
     }
+  }
+  if (e.target.classList.contains('reply-btn')) {
+    const ts = e.target.dataset.timestamp;
+    const div = e.target.closest('div');
+    const originalData = div?.dataset.original ? JSON.parse(div.dataset.original) : null;
+    if (originalData) {
+      let replyPreview = document.getElementById('reply-preview');
+      if (!replyPreview) {
+        replyPreview = document.createElement('div');
+        replyPreview.id = 'reply-preview';
+        if (darkModeToggle.checked) {
+          replyPreview.style.background = '#333';
+          replyPreview.style.color = '#eee';
+          replyPreview.style.border = '1px solid #555';
+        } else {
+          replyPreview.style.background = '#f0f0f0';
+          replyPreview.style.color = '#000';
+          replyPreview.style.border = '1px solid #ccc';
+        }
+        replyPreview.style.borderRadius = '6px';
+        replyPreview.style.padding = '6px 10px';
+        replyPreview.style.marginBottom = '6px';
+        replyPreview.style.fontSize = '0.95em';
+        replyPreview.style.maxWidth = '90%';
+        const replyPreviewContainer = document.getElementById('reply-preview-container');
+        if (replyPreviewContainer) {
+          replyPreviewContainer.innerHTML = '';
+          replyPreviewContainer.appendChild(replyPreview);
+        }
+      }
+      let previewContent = "";
+      const fileMatch = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>$/);
+      if (fileMatch) {
+        const url = fileMatch[1];
+        const filename = fileMatch[2];
+        const fileExt = filename.split('.').pop().toLowerCase();
+        const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
+        if (isImage) {
+          previewContent = `<img src="${url}" alt="${escapeHtml(filename)}" style="max-width:48px;max-height:48px;vertical-align:middle;margin-left:8px;border-radius:4px;border:1px solid #bbb;">`;
+        } else {
+          previewContent = `<span style="color:#888;font-size:0.95em;">[file]</span>`;
+        }
+      }
+
+      const replyText = escapeHtml(originalData.text);
+      const shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
+
+      replyPreview.innerHTML = `<b>Replying to:</b> <span style="color:#007bff">${escapeHtml(originalData.nick)}</span>: ${shortText} ${previewContent} <button id="cancel-reply" style="float:right;font-size:0.8em;padding:1px 6px;line-height:1.1;border-radius:4px;background:#eee;border:1px solid #ccc;color:#444;cursor:pointer;">✖</button>`;
+      msg.focus();
+      msg.dataset.replyTo = ts;
+    }
+  }
+  if (e.target.id === 'cancel-reply') {
+    let replyPreview = document.getElementById('reply-preview');
+    if (replyPreview) replyPreview.remove();
+    msg.dataset.replyTo = "";
   }
 });
 
@@ -948,7 +1113,9 @@ let i = setInterval(() => {
     const div = document.createElement("div");
     div.innerHTML = `<span style="color: red;"><b>⚠️ Połączenie z serwerem zostało utracone.</b></span>`;
     chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
+    if (isChatAtBottom()) {
+      chat.scrollTop = chat.scrollHeight;
+    }
     clearInterval(i);
     alert("🚫 Disconnected from server. The server may be offline.");
     location.reload();
@@ -961,13 +1128,30 @@ let i = setInterval(() => {
     const div = document.createElement("div");
     div.innerHTML = `<span style="color: red;"><b>⚠️ Serwer nie odpowiada.</b></span>`;
     chat.appendChild(div);
-    chat.scrollTop = chat.scrollHeight;
+    if (isChatAtBottom()) {
+      chat.scrollTop = chat.scrollHeight;
+    }
   }
 }, 5000);
 
+const settingsBtn = document.getElementById("settings-btn");
+const settingsModal = document.getElementById("settings-modal");
+const closeSettingsBtn = document.getElementById("close-settings-btn");
+
 settingsBtn.onclick = () => {
-  settingsPanel.style.display = settingsPanel.style.display === "none" ? "block" : "none";
+  settingsModal.style.display = "flex";
 };
+
+closeSettingsBtn.onclick = () => {
+  settingsModal.style.display = "none";
+};
+
+// Optional: close modal when clicking outside content
+settingsModal.addEventListener("click", (e) => {
+  if (e.target === settingsModal) {
+    settingsModal.style.display = "none";
+  }
+});
 
 function updateDeletedFilesInChat() {
   fetch("/file-list")

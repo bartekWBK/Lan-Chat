@@ -49,7 +49,8 @@ COLOR_PALETTE = [
 ]
 
 async def notify_users():
-    user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
+    user_list = [{"nick": u["nick"], "color": u["color"], "is_admin": u.get("is_admin", False)} for u in users.values()]
+    # user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
     message = json.dumps({"type": "users", "users": user_list, "muted": list(muted), "blacklist": list(blacklist)})
 
     to_remove = set()
@@ -230,6 +231,7 @@ async def chat_handler(websocket):
                     continue
                 text = data.get("text", "")
                 timestamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
+                reply_to = data.get("replyTo")
                 msg_obj = {
                     "type": "message",
                     "nick": users[websocket]["nick"],
@@ -237,6 +239,8 @@ async def chat_handler(websocket):
                     "text": text,
                     "timestamp": timestamp
                 }
+                if reply_to:
+                    msg_obj["replyTo"] = reply_to
                 if LoggAllowed:
                     timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
                     peer_ip = websocket.remote_address[0]

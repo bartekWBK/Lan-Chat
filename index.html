@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+
   <title>LAN Chat</title>
   <link rel="stylesheet" href="style.css" />
   <link rel="icon" href="icon.png">
@@ -24,33 +28,32 @@
 
 
     <button id="settings-btn">⚙ Settings</button>
-    <div id="settings-panel" style="display: none;">
-<button id="wipe-blacklist-btn" style="display:none; margin-top:5px; font-size:0.92em; padding:3px 8px;">🧹 Wipe All Blacklisted Users</button>      <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label><br />
-      <label>
-        <input type="checkbox" id="toggle-image-preview" checked />
-        Show image previews
-      </label><br>
-      <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
-      <br>
-      <label>
-        <input type="checkbox" id="toggle-file-links" />
-        Show files list
-      </label>
-      <br>
-      <label>
-        <input type="checkbox" id="toggle-post-files" />
-        Post files
-      </label><br>
-      <label>
-        Nick color:
-        <input type="color" id="custom-nick-color" style="vertical-align: middle;">
-        <button id="set-color-btn" style="margin-left:5px;">Set</button>
-      </label>
+
+    <div id="settings-modal" class="settings-modal">
+      <div class="settings-content">
+        <span class="close-settings" id="close-settings-btn">&times;</span>
+        <h2>Settings</h2>
+        <div id="settings-list">
+          <button id="wipe-blacklist-btn" style="display:none;">🧹 Wipe All Blacklisted Users</button>
+          <label><input type="checkbox" id="toggle-reply-btn" /> Show reply button</label>
+          <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label>
+          <label><input type="checkbox" id="toggle-image-preview" checked /> Show image previews</label>
+          <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
+          <label><input type="checkbox" id="toggle-file-links" /> Show files list</label>
+          <label><input type="checkbox" id="toggle-post-files" /> Post files</label>
+          <div class="nick-color-row">
+            <label for="custom-nick-color" style="margin-bottom:0;">Nick color:</label>
+            <input type="color" id="custom-nick-color">
+            <button id="set-color-btn" style="margin-bottom:0;">Set</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div id="main-chat">
     <div id="chat" class="chat-box"></div>
+    <div id="reply-preview-container"></div>
     <div class="input-area">
       <textarea id="msg" placeholder="Type your message..."></textarea>
       <button id="send">Send</button>
