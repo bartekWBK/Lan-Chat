@@ -48,13 +48,17 @@
           </div>
         </div>
       </div>
+      <label id="clearca">Press ctrl + shift + R to refresh cache</label>
     </div>
   </div>
 
   <div id="main-chat">
     <div id="chat" class="chat-box"></div>
-    <div id="reply-preview-container"></div>
     <div class="input-area">
+      <button id="attach-btn" title="Attach file" style="padding:0 14px;font-size:1.5em;line-height:1;">+</button>
+      <div id="attach-popup" style="display:none;position:absolute;bottom:60px;left:0;z-index:1001; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.13); padding:10px 0; min-width:140px;">
+        <button id="attach-file-btn" style="width:100%;padding:8px 0;border:none;background:none;cursor:pointer;font-size:1em;">📎 Attach file</button>
+      </div>
       <textarea id="msg" placeholder="Type your message..."></textarea>
       <button id="send">Send</button>
       <button id="code">Code</button>
@@ -68,11 +72,14 @@
         <option value="sql">🗄️ SQL</option>
         </select>
     </div>
-<div id="file-upload-controls" style="display:none;">
-  <label for="fileInput" class="file-upload-label">📎 Choose File</label>
-  <input type="file" id="fileInput">
-  <button id="sendFileBtn" onclick="uploadFile()">Send File</button>
-</div>
+    <div id="reply-preview-container"></div>
+    <div id="attach-preview"></div>
+
+    <div id="file-upload-controls" style="display:none;">
+      <label for="fileInput" class="file-upload-label">📎 Choose File</label>
+      <input type="file" id="fileInput">
+      <button id="sendFileBtn" onclick="uploadFile()">Send File</button>
+    </div>
   </div>
 
   <div id="file-list" style="margin:0; display:none;">
@@ -108,13 +115,7 @@
   z-index:1000;
 "></div>
 
-
-
-
-
-  <script src="chat.js"></script>
-
-
+  <script id="chat-js" src="chat.js"></script>
 
 </body>
 

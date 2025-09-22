@@ -28,15 +28,12 @@ class Browser(QMainWindow):
         self.setWindowTitle("Jakiś Cwelowski ShitBrowser z chata - jak chcesz pobrać z listy plik to middle click")
         self.setGeometry(100, 100, 1200, 800)
 
-        # Web view
         self.web_view = QWebEngineView()
         self.web_view.load(QUrl("https://www.google.com"))
 
-        # Address bar
         self.url_bar = QLineEdit()
         self.url_bar.returnPressed.connect(self.navigate_to_url)
 
-        # Navigation buttons
         back_btn = QPushButton("◀")
         back_btn.clicked.connect(self.web_view.back)
 
@@ -52,7 +49,6 @@ class Browser(QMainWindow):
         save_btn = QPushButton("⭐ Save")
         save_btn.clicked.connect(self.save_bookmark)
 
-        # Layouts
         nav_layout = QHBoxLayout()
         nav_layout.addWidget(back_btn)
         nav_layout.addWidget(forward_btn)
@@ -69,20 +65,13 @@ class Browser(QMainWindow):
         container.setLayout(main_layout)
         self.setCentralWidget(container)
 
-        # Bookmarks list
         self.bookmarks = QListWidget()
         self.bookmarks.itemClicked.connect(self.load_bookmark)
         dock = QDockWidget("Bookmarks", self)
         dock.setWidget(self.bookmarks)
         self.addDockWidget(2, dock)
-
-        # Download manager
         self.web_view.page().profile().downloadRequested.connect(self.handle_download)
-
-        # Load bookmarks
         self.load_bookmarks()
-
-        # Update URL bar on page change
         self.web_view.urlChanged.connect(self.update_url_bar)
 
     def update_url_bar(self, q):
@@ -119,14 +108,12 @@ class Browser(QMainWindow):
                 self.bookmarks.addItems(bookmarks)
 
     def handle_download(self, download: QWebEngineDownloadItem):
-        # Use the suggested file name (keeps correct extension, e.g. .png, .pdf)
         suggested_filename = download.suggestedFileName()
         default_path = os.path.join(
             QStandardPaths.writableLocation(QStandardPaths.DownloadLocation),
             suggested_filename
         )
 
-        # Show save dialog
         save_path, _ = QFileDialog.getSaveFileName(self, "Save File", default_path)
 
         if save_path:

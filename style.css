@@ -42,19 +42,7 @@ h1 {
   font-size: 1.2em;
 }
 
-/* #users {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 15px 0;
-  flex-grow: 1;
-  overflow-y: auto;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  min-width: 0;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  flex-shrink: 0;
-} */
+
 
 #sidebar {
   width: 200px;
@@ -71,9 +59,9 @@ h1 {
   list-style: none;
   padding: 0;
   margin: 0 0 15px 0;
-  flex-grow: 1;          /* zajmuje całą wolną przestrzeń */
-  min-height: 0;         /* ważne żeby overflow działało */
-  overflow-y: auto;      /* przewijanie jeśli za dużo userów */
+  flex-grow: 1;          
+  min-height: 0;         
+  overflow-y: auto;      
   border: 1px solid #ddd;
   border-radius: 4px;
 }
@@ -102,6 +90,7 @@ h1 {
   border: none;
   border-radius: 4px;
   font-size: 1em;
+  
 }
 
 #settings-panel {
@@ -115,9 +104,8 @@ h1 {
   flex-direction: column;
   min-width: 0;      
   max-width: 100%; 
-  height: calc(100vh - 180px); /* adjust 180px as needed for your input area and reply preview */
+  height: calc(100vh - 180px); 
   max-height: calc(100vh - 180px);
-  overflow-y: auto;
 }
 #reply-preview-container {
   margin-bottom: 6px;
@@ -138,7 +126,7 @@ h1 {
   word-break: break-word;
   overflow-wrap: break-word;
   box-sizing: border-box;
-  flex-shrink: 0;     /* Prevent shrinking */
+  flex-shrink: 0;     
 }
 
 .input-area {
@@ -393,7 +381,7 @@ pre.code-raw {
   border-radius: 4px;
   overflow-x: auto;
   margin: 0;
-  /* No extra elements or spacing */
+
 }
 .code-block {
   position: relative;
@@ -426,7 +414,7 @@ pre.code-raw {
   padding: 8px 12px;
   margin: 8px 0;
   gap: 10px;
-  max-width: 350px;
+  max-width: 300px;
   box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 
@@ -478,80 +466,8 @@ body.dark .file-download-btn:hover {
   background: #1a73e8;
 }
 
-#fileInput {
-  display: none;
-}
 
-#sendFileBtn {
-  background: #28a745;
-  border: none;
-  color: #fff;
-  border-radius: 6px;
-  padding: 10px 18px;
-  font-size: 16px;
-  margin-left: 8px;
-  cursor: pointer;
-  transition: background 0.2s;
-  vertical-align: middle;
-}
 
-#sendFileBtn:hover {
-  background: #218838;
-}
-
-.file-upload-label {
-  display: inline-block;
-  background: #007bff;
-  color: #fff;
-  border-radius: 6px;
-  padding: 10px 18px;
-  font-size: 16px;
-  cursor: pointer;
-  margin-right: 8px;
-  transition: background 0.2s;
-  vertical-align: middle;
-}
-
-.file-upload-label:hover {
-  background: #0056b3;
-}
-
-#file-upload-controls {
-  margin-top: 16px;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-#fileInput {
-  position: absolute;
-  left: -9999px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-#file-upload-controls {
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 10px 14px;
-  margin-top: 16px;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-body.dark #file-upload-controls {
-  background: #232323;
-  border-color: #444;
-}
-.file-upload-label {
-  min-width: 120px;
-  text-align: center;
-}
 
 #uploaded-files {
   scrollbar-width: thin;
@@ -907,12 +823,12 @@ body.dark .user-action-btn.more-options-btn:hover {
 }
 
 #users-container {
-  max-height: 250px;   /* możesz dostosować */
+  max-height: 250px;   
   overflow-y: auto;
   border: 1px solid #444;
   padding: 4px;
   border-radius: 6px;
-  background: #1e1e1e; /* fajne w dark mode */
+  background: #1e1e1e; 
 }
 
 #users-container::-webkit-scrollbar {
@@ -932,34 +848,31 @@ body.dark .user-action-btn.more-options-btn:hover {
   transform: scale(1.05);
 }
 
-/* Image modal */
 .image-modal {
   display: none;
   position: fixed;
   z-index: 2000;
-  inset: 0; /* shorthand for top/right/bottom/left:0 */
+  inset: 0; 
   background: rgba(0,0,0,0.9);
   justify-content: center;
   align-items: center;
   overflow: hidden;
 }
 
-/* Modal image */
 .image-modal img {
   max-width: 90%;
   max-height: 90%;
   cursor: grab;
   transition: transform 0.15s ease;
-  touch-action: none;      /* disables native touch scrolling */
+  touch-action: none;      
   user-select: none;
   -webkit-user-drag: none;
   z-index: 2050;
   will-change: transform;
 }
 
-/* Close button */
 .close-modal {
-  position: fixed; /* stays on top even while panning */
+  position: fixed; 
   top: 18px;
   right: 24px;
   font-size: 28px;
@@ -971,7 +884,6 @@ body.dark .user-action-btn.more-options-btn:hover {
   border-radius: 6px;
 }
 
-/* Zoom button */
 .zoom-btn {
   position: absolute;
   top: 6px;
@@ -989,7 +901,6 @@ body.dark .user-action-btn.more-options-btn:hover {
   background: rgba(0,0,0,0.8);
 }
 
-/* Prev/Next arrow buttons */
 .prev-img, .next-img {
   position: absolute;
   top: 50%;
@@ -1119,7 +1030,6 @@ body.dark .close-settings:hover {
 }
 
 
-/* Reply preview in chat (for replies) */
 body.dark .reply-preview-in-chat {
   background: #232323;
   border-left: 3px solid #3399ff;
@@ -1150,3 +1060,233 @@ body.dark .reply-preview {
   color: #eee !important;
 }
 
+#reply-preview {
+  transition: background 0.2s, color 0.2s, border 0.2s;
+}
+body.dark #reply-preview code.reply-code-preview {
+  background: #222 !important;
+  color: #eee !important;
+}
+#reply-preview {
+  animation: fadeInUp 0.25s;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px);}
+  to   { opacity: 1; transform: translateY(0);}
+}
+.highlight-reply {
+  animation: replyHighlight 1.2s;
+}
+@keyframes replyHighlight {
+  0%   { background: #ffe066; }
+  80%  { background: #ffe066; }
+  100% { background: transparent; }
+}
+body.dark .highlight-reply {
+  animation: replyHighlightDark 1.2s;
+}
+@keyframes replyHighlightDark {
+  0%   { background: #444a2f; }
+  80%  { background: #444a2f; }
+  100% { background: transparent; }
+}
+
+
+
+body.dark #attach-popup button:hover {
+  background: #333;
+}
+#attach-preview {
+  margin-top: 8px;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+body.dark #attach-preview {
+  background: #232323;
+  color: #eee;
+}
+body.dark #file-upload-controls {
+  background: #232323;
+  border-color: #444;
+}
+body.dark .file-upload-label {
+  background: #333;
+  color: #eee;
+  border-color: #444;
+}
+body.dark #sendFileBtn {
+  background: #3399ff;
+  color: #fff;
+}
+body.dark #sendFileBtn:hover {
+  background: #1a73e8;
+}
+body.dark #fileInput {
+  background: #232323;
+  color: #eee;
+  border-color: #444;
+}
+#attach-popup {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.13);
+  padding: 10px 0;
+  min-width: 140px;
+  z-index: 1001;
+  margin-left: -5px;
+}
+#attach-popup button {
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1em;
+  color: #222;
+  text-align: left;
+  transition: background 0.2s;
+}
+#attach-popup button:hover {
+  background: #f0f0f0;
+}
+body.dark #attach-popup {
+  background: #232323;
+  border-color: #444;
+  color: #eee;
+}
+body.dark #attach-popup button {
+  color: #eee;
+}
+body.dark #attach-popup button:hover {
+  background: #333;
+}
+#attach-preview {
+  margin-top: 18px;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+body.dark #attach-preview {
+  background: #232323;
+  color: #eee;
+}
+#attach-popup {
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.13);
+  padding: 10px 0;
+  min-width: 140px;
+  z-index: 1001;
+}
+body.dark #attach-popup {
+  background: #232323;
+  border-color: #444;
+  color: #eee;
+}
+
+.highlight-reply {
+  position: relative;
+  z-index: 10000;
+  animation: replyHighlight 1.2s;
+}
+body.dark .highlight-reply {
+  animation: replyHighlightDark 1.2s;
+}
+
+#image-modal {
+  align-items: center;
+  justify-content: center;
+}
+#image-modal img,
+#modal-img {
+  max-width: 90vw !important;
+  max-height: 90vh !important;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #222;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.4);
+  cursor: grab;
+}
+.file-card img {
+  transition: box-shadow 0.2s;
+}
+.file-card img:hover {
+  box-shadow: 0 4px 24px #3399ff44;
+}
+.file-card .file-name {
+  font-size: 0.92em;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-download-btn {
+  min-width: 90px;
+  min-height: 32px;
+  font-size: 1em;
+  flex-shrink: 0;
+}
+.file-card img {
+  display: block;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.file-card {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  margin-top: 2px !important;
+  margin-bottom: 2px !important;
+}
+.file-card:has(img) {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  margin-top: 4px !important;
+  margin-bottom: 4px !important;
+}
+#clearca {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+#resizeImg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  max-width: 80%;       
+  min-width: 220px;     
+  box-sizing: border-box;
+}
+
+#resizeImg .thumb {
+  margin: 4px;
+  display: flex;
+  width: auto;
+  height: auto;
+  border: none;
+  max-height: 220px;
+}
+
+#resizeImg .thumb img {
+  display: block;  
+  width: 100%;
+  height: 100%;
+  max-height: 200px;
+  max-width: 100%;
+  border: none;
+  object-fit: contain;    
+}

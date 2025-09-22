@@ -50,7 +50,6 @@ COLOR_PALETTE = [
 
 async def notify_users():
     user_list = [{"nick": u["nick"], "color": u["color"], "is_admin": u.get("is_admin", False)} for u in users.values()]
-    # user_list = [{"nick": u["nick"], "color": u["color"]} for u in users.values()]
     message = json.dumps({"type": "users", "users": user_list, "muted": list(muted), "blacklist": list(blacklist)})
 
     to_remove = set()
@@ -282,6 +281,10 @@ SERVER_IP = get_server_ip()
 
 
 class CustomHandler(SimpleHTTPRequestHandler):
+    def send_no_cache_headers(self):
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
     def do_GET(self):
         if self.path == "/file-list":
             files = [
@@ -290,6 +293,7 @@ class CustomHandler(SimpleHTTPRequestHandler):
             ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(json.dumps(files).encode("utf-8"))
             return
@@ -324,6 +328,7 @@ class CustomHandler(SimpleHTTPRequestHandler):
             )
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(content.encode("utf-8"))
         else:
