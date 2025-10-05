@@ -6,7 +6,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.6.0");
+console.log("v: 1.6.0.1");
 let lang = "javascript";
 const favKey = "giphy_favorites";
 const codeLang = document.getElementById("code-lang");
@@ -377,7 +377,32 @@ darkModeToggle.addEventListener("change", () => {
 
 
 
+const chatVideoObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    const video = entry.target;
+    if (entry.isIntersecting) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  });
+}, {
+  root: chat,
+  threshold: 0.1 
+});
 
+function observeChatVideos() {
+  chat.querySelectorAll("video").forEach(video => {
+    chatVideoObserver.observe(video);
+  });
+}
+
+const chatMutationObs = new MutationObserver(() => {
+  observeChatVideos();
+});
+chatMutationObs.observe(chat, { childList: true, subtree: true });
+
+observeChatVideos();
 
 
 if (recoverBtn) {
@@ -1445,57 +1470,81 @@ function formatMessage(data, forceDeleted = false) {
     `;
   });
   if (!fileLinkMatch && !singleCodeMatch) {
-    const parts = text.split(/\s+/);
-    
-    const gifOnlyMatch = parts.length === 1 && /\.gif(\?.*)?$/i.test(parts[0]);
-    
-    if (gifOnlyMatch) {
-      const src = parts[0];
+
+    let text = data.text.trim();
+
+    if (/^(https?:\/\/[^\s<]+?\.(gif|png|jpe?g|webp|bmp|svg)(\?.*)?)$/i.test(text)) {
+      const src = text;
       const favs = userFavorites;
       const isFav = favs.includes(src);
       return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
-        <div class="chat-img-container" style="margin:8px 0;">
-          <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
-            <img src="${src}" alt="GIF" class="chat-gif-img"
-                style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
-                onclick="openImageModal('${src}','GIF')">
-            <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${src}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
-          </div>
-        </div>`;
+      <div class="chat-img-container" style="margin:8px 0;">
+        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+          <img src="${src}" alt="GIF" class="chat-gif-img"
+              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+              onclick="openImageModal('${src}','GIF')">
+          <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${src}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+        </div>
+      </div>`;
     }
-
+    if (/^(https?:\/\/[^\s<]+?\.mp4(\?.*)?)$/i.test(text)) {
+      const src = text;
+      const favs = userFavorites;
+      const isFav = favs.includes(src);
+      return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+  <div class="chat-img-container" style="margin:8px 0;">
+      <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+        <video src="${src}" autoplay loop muted playsinline
+          style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+          onclick="openImageModal('${src}','Video')"></video>
+        <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${src}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+      </div>
+    </div>`;
+    }
+    let parts = text.split(/\s+/);
     let processedParts = parts.map(word => {
-        const favs = userFavorites;
-        const isFav = favs.includes(word);
-        if (/https?:\/\/[^\s<]+?\.gif(\?.*)?/i.test(word)) {
-          return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
-            <div class="chat-img-container" style="margin:8px 0;">
-              <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
-                <img src="${word}" alt="GIF" class="chat-gif-img"
-                    style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
-                    onclick="openImageModal('${word}','GIF')">
-                <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${word}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
-              </div>
-            </div>`;
-        } 
-        else if (/https?:\/\/[^\s<]+?\.(png|jpe?g|webp|bmp|svg)(\?.*)?/i.test(word) ||
-                /https?:\/\/encrypted-tbn0\.gstatic\.com\/images/i.test(word)) {
-          return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
-            <div class="chat-img-container" style="margin:8px 0;">
-              <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
-                <img src="${word}" alt="Image" class="chat-gif-img"
-                    style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
-                    onclick="openImageModal('${word}','Image')">
-              </div>
-            </div>`;
-        } 
-        else if (/https?:\/\/[^\s<]+/i.test(word)) {
-          return `<a href="${word}" target="_blank">${escapeHtml(word)}</a>`;
-        } 
-        else {
-          return escapeHtml(word);
-        }
-      });
+      const favs = userFavorites;
+      const isFav = favs.includes(word);
+      if (/https?:\/\/[^\s<]+?\.gif(\?.*)?/i.test(word)) {
+        return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+      <div class="chat-img-container" style="margin:8px 0;">
+        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+          <img src="${word}" alt="GIF" class="chat-gif-img"
+              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+              onclick="openImageModal('${word}','GIF')">
+          <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${word}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+        </div>
+      </div>`;
+      } 
+      else if (/https?:\/\/[^\s<]+?\.mp4(\?.*)?/i.test(word)) {
+        return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+     <div class="chat-img-container" style="margin:8px 0;">
+    <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+      <video src="${word}" autoplay loop muted playsinline
+        style="max-width:220px; max-height:220px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.10); cursor:pointer;"
+        onclick="openImageModal('${word}','Video')"></video>
+      <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${word}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+    </div>
+  </div>`;
+      }
+      else if (/https?:\/\/[^\s<]+?\.(png|jpe?g|webp|bmp|svg)(\?.*)?/i.test(word) ||
+              /https?:\/\/encrypted-tbn0\.gstatic\.com\/images/i.test(word)) {
+        return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+      <div class="chat-img-container" style="margin:8px 0;">
+        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+          <img src="${word}" alt="Image" class="chat-gif-img"
+              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+              onclick="openImageModal('${word}','Image')">
+        </div>
+      </div>`;
+      } 
+      else if (/https?:\/\/[^\s<]+/i.test(word)) {
+        return `<a href="${word}" target="_blank">${escapeHtml(word)}</a>`;
+      } 
+      else {
+        return escapeHtml(word);
+      }
+  });
 
     processed = processedParts.join(' ');
     if (processed.includes('class="chat-img-container"')){
@@ -2290,13 +2339,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const favs = userFavorites;
 
     gifs.forEach((gif) => {
-      const src = gif.images.fixed_width.url;
+      let src = gif.images?.fixed_width?.url || gif.video || gif; 
+      const isVideo = /\.mp4(\?.*)?$/i.test(src);
       const div = document.createElement("div");
       div.className = "gif-item";
-      div.innerHTML = `
-        <img src="${src}" alt="">
-        <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
-      `;
+
+      if (isVideo) {
+        div.innerHTML = `
+          <video src="${src}" autoplay loop muted playsinline
+            style="width:100%;border-radius:8px;display:block;cursor:pointer;"></video>
+          <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
+        `;
+      } else {
+        div.innerHTML = `
+          <img src="${src}" alt=""
+            style="width:100%;border-radius:8px;display:block;cursor:pointer;">
+          <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
+        `;
+      }
+
       div.querySelector(".gif-heart").addEventListener("click", (e) => {
         e.stopPropagation();
         const list = getFavs();
@@ -2317,21 +2378,30 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         });
       });
+
       div.addEventListener("click", () => {
+        if (!src) return; 
+        const isVideo = /\.mp4(\?.*)?$/i.test(src);
+
         const payload = {
           type: "message",
           nick,
-          text: `<img src="${src}" alt="GIF" style="max-width:220px;max-height:220px;border-radius:8px;">`
+          text: src
+            // ? `<video src="${src}" autoplay loop muted playsinline style="max-width:220px;max-height:220px;border-radius:8px;"></video>`
+            // : `<img src="${src}" alt="GIF" style="max-width:220px;max-height:220px;border-radius:8px;">`
         };
+
         if (msgInput.dataset.replyTo) {
           payload.replyTo = msgInput.dataset.replyTo;
           msgInput.dataset.replyTo = "";
           const replyPreview = document.getElementById('reply-preview');
           if (replyPreview) replyPreview.remove();
         }
+
         ws.send(JSON.stringify(payload));
         picker.style.display = "none";
       });
+
       grid.appendChild(div);
     });
   }
