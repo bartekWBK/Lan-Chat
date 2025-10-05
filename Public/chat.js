@@ -6,8 +6,9 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.5.0");
+console.log("v: 1.6.0");
 let lang = "javascript";
+const favKey = "giphy_favorites";
 const codeLang = document.getElementById("code-lang");
 const mainChat = document.getElementById("main-chat");
 const chat = document.getElementById("chat");
@@ -30,11 +31,25 @@ const attachBtn = document.getElementById("attach-btn");
 const attachPopup = document.getElementById("attach-popup");
 const attachFileBtn = document.getElementById("attach-file-btn");
 const attachPreview = document.getElementById("attach-preview");
+const toggleAutoRecover = document.getElementById("toggle-auto-recover");
+const toggleGifFeature = document.getElementById("toggle-gif-feature");
+const recoverBtn = document.getElementById("recover-chat-btn");
+const closeRecoverBtn = document.getElementById("close-recover-btn");
+let loggedInUser = localStorage.getItem("loggedInUser");
+let userFavorites = [];
 let attachedFile = null;
 let deletedFiles = new Set();
 if (localStorage.getItem("showTimestamps") === null) {
   localStorage.setItem("showTimestamps", "true");
 }
+if (toggleAutoRecover) {
+  toggleAutoRecover.addEventListener("change", () => {
+    autoRecover = toggleAutoRecover.checked;
+    localStorage.setItem("autoRecover", autoRecover);
+  });
+}
+let autoRecover = localStorage.getItem("autoRecover") === "true";
+if (toggleAutoRecover) toggleAutoRecover.checked = autoRecover;
 let showTimestamps = localStorage.getItem("showTimestamps") === "true";let showFileLinks = localStorage.getItem("showFileLinks") === "true";
 let customNickColor = localStorage.getItem("customNickColor") || "";
 let isAlive = true;
@@ -62,7 +77,7 @@ if (toggleReplyBtn) {
 function showError(msg) {
   const box = document.getElementById("error-message");
   if (!box) return;
-  box.textContent = msg;
+  box.innerHTML = msg;
   box.style.display = "block";
   setTimeout(() => {
     box.style.display = "none";
@@ -108,6 +123,8 @@ function isChatAtBottom(threshold = 60) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  const inputArea = document.querySelector('.input-area');
+  const msgInput = document.getElementById("msg");
   showTimestamps = localStorage.getItem("showTimestamps") === "true";
   showFileLinks = localStorage.getItem("showFileLinks") === "true";
   customNickColor = localStorage.getItem("customNickColor") || "";
@@ -120,10 +137,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (customNickColor) customNickColorInput.value = customNickColor;
   togglePostFiles.checked = localStorage.getItem("togglePostFiles") === "true";
-  attachBtn.style.display = togglePostFiles.checked ? "" : "none";
+  sendFileBtn.style.display = togglePostFiles.checked ? "" : "none";
+  attachFileBtn.style.display = togglePostFiles.checked ? "" : "none";
   darkModeToggle.checked = localStorage.getItem("darkMode") !== "false";
   if (darkModeToggle.checked) document.body.classList.add("dark");
   else document.body.classList.remove("dark");
+  
+  if (autoRecover) {
+    safeSend({ type: "get-history" });
+    if (recoverBtn) recoverBtn.style.display = "none";
+  }
 
   fileInput.value = "";
   fileUploadLabel.textContent = "📎 Choose File";
@@ -138,6 +161,20 @@ document.addEventListener("DOMContentLoaded", () => {
       sendFileBtn.style.display = "none";
     }
   });
+  const gifBtn = document.getElementById("gif-btn");
+  let gifFeatureEnabled = localStorage.getItem("gifFeatureEnabled") !== "false";
+  if (toggleGifFeature) toggleGifFeature.checked = gifFeatureEnabled;
+  gifBtn.style.display = gifFeatureEnabled ? "" : "none";
+  if (toggleGifFeature) {
+    toggleGifFeature.addEventListener("change", () => {
+      gifFeatureEnabled = toggleGifFeature.checked;
+      localStorage.setItem("gifFeatureEnabled", gifFeatureEnabled);
+      
+      if (gifBtn) gifBtn.style.display = gifFeatureEnabled ? "" : "none";
+      document.getElementById("giphy-picker").style.display = "none";
+    });
+  }
+
 
   togglePostFiles.addEventListener("change", () => {
     localStorage.setItem("togglePostFiles", togglePostFiles.checked);
@@ -145,11 +182,11 @@ document.addEventListener("DOMContentLoaded", () => {
       fileInput.value = "";
       fileUploadLabel.textContent = "📎 Choose File";
       sendFileBtn.style.display = "none";
-      attachBtn.style.display = "none"; 
+      attachFileBtn.style.display = "none"; 
       attachPreview.innerHTML = "";
       attachedFile = null;
     } else {
-      attachBtn.style.display = ""; 
+      attachFileBtn.style.display = ""; 
     }
   });
 
@@ -209,20 +246,8 @@ if (setColorBtn) {
 }
 
 
-attachBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  attachPopup.style.display = attachPopup.style.display === "block" ? "none" : "block";
-  const rect = attachBtn.getBoundingClientRect();
-  attachPopup.style.left = rect.left + "px";
-  attachPopup.style.bottom = (window.innerHeight - rect.top + 8) + "px";
-});
-document.addEventListener("click", (e) => {
-  if (!attachPopup.contains(e.target) && e.target !== attachBtn) {
-    attachPopup.style.display = "none";
-  }
-});
+
 attachFileBtn.addEventListener("click", () => {
-  attachPopup.style.display = "none";
   fileInput.click();
 });
 fileInput.addEventListener("change", () => {
@@ -353,12 +378,11 @@ darkModeToggle.addEventListener("change", () => {
 
 
 
-const recoverBtn = document.getElementById("recover-chat-btn");
-const closeRecoverBtn = document.getElementById("close-recover-btn");
+
 
 if (recoverBtn) {
   recoverBtn.addEventListener("click", () => {
-    ws.send(JSON.stringify({ type: "get-history" }));
+    safeSend({ type: "get-history" });
     recoverBtn.style.display = "none";
   });
 }
@@ -524,11 +548,17 @@ code.onclick = () => {
 };
 
 ws.onopen = () => {
-  if (location.hostname != "localhost") {
-    nick = promptForNick();
-    ws.send(JSON.stringify({ type: "join", nick }));
-  }else{
-    ws.send(JSON.stringify({ type: "join", nick }));
+  const savedToken = localStorage.getItem("sessionToken");
+
+  if (savedToken) {
+    ws.send(JSON.stringify({ type: "session-login", token: savedToken }));
+  } else {
+    if (location.hostname != "localhost") {
+      nick = promptForNick();
+      ws.send(JSON.stringify({ type: "join", nick }));
+    } else {
+      ws.send(JSON.stringify({ type: "join", nick }));
+    }
   }
 };
 
@@ -548,8 +578,97 @@ ws.onmessage = (event) => {
 
 
   }
+  if (data.type === "login-success" || data.type === "register-success") {
+    loggedInUser = data.username;
+    localStorage.setItem("loggedInUser", data.username);
+    localStorage.setItem("sessionToken", data.token);
+    updateLoginUI();
+    closeModal();
+    ws.send(JSON.stringify({
+      type: "get-settings",
+      username: loggedInUser
+    }));
+    ws.send(JSON.stringify({
+      type: "get-favorites",
+      username: loggedInUser
+    }));
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "join", nick: loggedInUser, Force: true }));
+    } else {
+        ws.addEventListener("open", () => {
+            ws.send(JSON.stringify({ type: "join", nick: loggedInUser, Force: true }));
+        }, { once: true });
+    }
+    if (window.PasswordCredential) {
+      const cred = new PasswordCredential({
+        id: document.getElementById("login-username").value,
+        password: document.getElementById("login-password").value
+      });
+      navigator.credentials.store(cred).catch(() => {});
+    }
+  }
+  if (data.type === "duplicate-session") {
+    let but = document.getElementById("login-toggle-btn");
+    if (but) but.style.display = "none";
+    document.body.innerHTML = `
+      <div style="
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        height:100vh;
+        width:100vw;
+        background:#222;
+        color:white;
+        font-size:1.5em;
+        text-align:center;
+        padding:20px;
+        box-sizing:border-box;
+      ">
+        This session is already active in another tab.<br>
+        Please close this tab and log in from another one.<br><br>
+        <button id="force-logout-btn" style="margin-top:24px;padding:12px 32px;font-size:1em;background:#dc3545;color:#fff;border:none;border-radius:8px;cursor:pointer;">Log out this account</button>
+      </div>
+    `;
+    setTimeout(() => {
+      const btn = document.getElementById("force-logout-btn");
+      if (btn) {
+        btn.onclick = () => {
+          const username = localStorage.getItem("loggedInUser");
+          const token = localStorage.getItem("sessionToken");
+          if (username && token) {
+            const ws2 = new WebSocket(`ws://${location.hostname}:6789`);
+            ws2.onopen = () => {
+              ws2.send(JSON.stringify({
+                type: "logout-session",
+                username,
+                token
+              }));
+              ws2.close();
+              localStorage.removeItem("loggedInUser");
+              localStorage.removeItem("sessionToken");
+              setTimeout(() => window.location.reload(), 1000);
+            };
+          } else {
+            window.location.reload();
+          }
+        };
+      }
+    }, 100);
+  }
+  if (data.type === "auth-error") {
+    loggedInUser = null;
+    localStorage.removeItem("loggedInUser");
+    localStorage.removeItem("sessionToken");
+    const loginToggleBtn = document.getElementById("login-toggle-btn");
+    loginToggleBtn.textContent = "🔑 Log in";
+    showError(data.message || "Login failed. Wrong username or password.");
+    if (data.message == "Invalid or expired session") {
+      ws.send(JSON.stringify({ type: "join", nick: promptForNick() }));
+    }
+  }
   if (data.type === "history-available") {
-    if (recoverBtn) recoverBtn.style.display = data.available ? "inline-block" : "none";
+    if (recoverBtn && !autoRecover) recoverBtn.style.display = data.available ? "inline-block" : "none";
     return;
   }
   if (data.type === "history") {
@@ -565,15 +684,30 @@ ws.onmessage = (event) => {
       div.innerHTML = formatMessage(msgData);
       chat.appendChild(div);
     });
-    chat.scrollTop = chat.scrollHeight;
+    const imgs = chat.querySelectorAll("img");
+    if (imgs.length) {
+      let loaded = 0;
+      imgs.forEach(img => {
+        if (img.complete) {
+          loaded++;
+          if (loaded === imgs.length) chat.scrollTop = chat.scrollHeight;
+        } else {
+          img.addEventListener("load", () => {
+            loaded++;
+            if (loaded === imgs.length) chat.scrollTop = chat.scrollHeight;
+          });
+          img.addEventListener("error", () => {
+            loaded++;
+            if (loaded === imgs.length) chat.scrollTop = chat.scrollHeight;
+          });
+        }
+      });
+    } else {
+      chat.scrollTop = chat.scrollHeight;
+    }
+
     if (window.Prism) Prism.highlightAll();
     updateDeletedFilesInChat();
-    requestAnimationFrame(() => {
-        chat.scrollTop = chat.scrollHeight;
-    });
-    setTimeout(() => {
-      chat.scrollTop = chat.scrollHeight;
-    }, 100);
     return;
   }
   if (data.type === "files-cleared" || data.type === "file-deleted") {
@@ -633,12 +767,33 @@ ws.onmessage = (event) => {
       }
     });
 
-    if (div.querySelector("img")) {
-      setTimeout(() => {
-        if (wasAtBottom) chat.scrollTop = chat.scrollHeight;
-      }, 100);
+    const imgs = div.querySelectorAll("img");
+    if (imgs.length) {
+      let loaded = 0;
+      imgs.forEach(img => {
+        if (img.complete) {
+          loaded++;
+          if (loaded === imgs.length && wasAtBottom) {
+            chat.scrollTop = chat.scrollHeight;
+          }
+        } else {
+          img.addEventListener("load", () => {
+            loaded++;
+            if (loaded === imgs.length && wasAtBottom) {
+              chat.scrollTop = chat.scrollHeight;
+            }
+          });
+          img.addEventListener("error", () => {
+            loaded++;
+            if (loaded === imgs.length && wasAtBottom) {
+              chat.scrollTop = chat.scrollHeight;
+            }
+          });
+        }
+      });
+    } else if (wasAtBottom) {
+      chat.scrollTop = chat.scrollHeight;
     }
-
     if (window.Prism) Prism.highlightAll();
     if (
       data.text.startsWith("📎 <a href=") &&
@@ -652,26 +807,93 @@ ws.onmessage = (event) => {
     isAlive = true;
     return;
   }
+  if (data.type === "user-favorites") {
+    userFavorites = data.favorites || [];
+  }
   if (data.type === "files-cleared") {
     if (toggleFileLinks.checked && fileListDiv.style.display !== "none") {
       fetchFileList();
     }
   }
-  if (data.type === "kicked") {
-    if (data.reason === "duplicate") {
-      alert("You have been disconnected because you opened another tab with this nickname.");
-    } else if (data.reason === "kicked") {
-      alert("You have been kicked from the chat.");
-    } else if (data.reason === "banned") {
-      alert("You have been BANNED from the chat.");
-    } else {
-      alert("You have been kicked but idk why tbh from the chat.");
+  if (data.type === "user-settings") {
+    const settings = data.settings || {};
+    if ("gifFeatureEnabled" in settings) {
+      toggleGifFeature.checked = settings.gifFeatureEnabled;
+      gifFeatureEnabled = settings.gifFeatureEnabled;
+      const gifBtn = document.getElementById("gif-btn");
+      if (gifBtn) gifBtn.style.display = gifFeatureEnabled ? "" : "none";
     }
+    if ("color" in settings) {
+      customNickColorInput.value = settings.color;
+      localStorage.setItem("customNickColor", settings.color);
+    }
+    if ("darkMode" in settings) {
+      darkModeToggle.checked = settings.darkMode;
+      localStorage.setItem("darkMode", settings.darkMode);
+      if (settings.darkMode) document.body.classList.add("dark");
+      else document.body.classList.remove("dark");
+    }
+    if ("showTimestamps" in settings) {
+      toggleTimestamps.checked = settings.showTimestamps;
+      localStorage.setItem("showTimestamps", settings.showTimestamps);
+    }
+    if ("showFileLinks" in settings) {
+      toggleFileLinks.checked = settings.showFileLinks;
+      localStorage.setItem("showFileLinks", settings.showFileLinks);
+      fileListDiv.style.display = settings.showFileLinks ? "block" : "none";
+    }
+    if ("showReplyBtn" in settings) {
+      toggleReplyBtn.checked = settings.showReplyBtn;
+      localStorage.setItem("showReplyBtn", settings.showReplyBtn);
+    }
+    if ("showImagePreview" in settings) {
+      toggleImagePreview.checked = settings.showImagePreview;
+      localStorage.setItem("showImagePreview", settings.showImagePreview);
+    }
+    if ("postFiles" in settings) {
+      togglePostFiles.checked = settings.postFiles;
+      localStorage.setItem("togglePostFiles", settings.postFiles);
+      sendFileBtn.style.display = settings.postFiles ? "" : "none";
+      attachFileBtn.style.display = settings.postFiles ? "" : "none";
+    }
+    if ("autoRecover" in settings) {
+      toggleAutoRecover.checked = settings.autoRecover;
+      autoRecover = settings.autoRecover;
+      localStorage.setItem("autoRecover", autoRecover);
+    }
+    [...chat.children].forEach(div => {
+      const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
+      if (originalData) {
+        div.innerHTML = formatMessage(originalData);
+      }
+    });
+  }
+  if (data.type === "kicked" && data.reason === "duplicate") {
+    alert("You have been disconnected because this account logged in elsewhere.");
+    loggedInUser = null;
+    localStorage.removeItem("loggedInUser");
+    localStorage.removeItem("sessionToken");
+    updateLoginUI();
     window.location.reload();
+}
+  if (data.type === "kicked") {
+    function sayAndReload(message) {
+      if (confirm(message)) {
+        window.location.reload();
+      }
+    }
+    if (data.reason === "kicked") {
+        sayAndReload("You have been kicked from the chat.");
+      } else if (data.reason === "banned") {
+        sayAndReload("You have been BANNED from the chat.");
+      } else {
+        sayAndReload("You have been kicked but idk why tbh from the chat.");
+      }
   }
   if (data.type === "IP") {
     const ip = document.getElementById("LAN");
     let mutedUsers = new Set(data.muted || []);
+    let verifiedUsers = new Set(data.verified || []);
     if (ip) ip.innerHTML = `LAN chat - ${data.ip}:8000`;
     IP = data.ip; 
     if (location.hostname === "localhost") {
@@ -701,8 +923,23 @@ ws.onmessage = (event) => {
         if (user.nick === nick) myColor = user.color;
         const li = document.createElement("li");
         li.textContent = user.nick;
+        li.title = user.nick;
         if (user.color) li.style.color = user.color;
         if (user.nick === nick) li.style.fontWeight = "bold";
+        if (mutedUsers.has(user.nick)) {
+          const mutedIcon = document.createElement("span");
+          mutedIcon.textContent = "🔇";
+          mutedIcon.title = "Muted";
+          mutedIcon.style.marginRight = "4px";
+          li.insertBefore(mutedIcon, li.firstChild);
+        }
+        if (verifiedUsers.has(user.nick)) {
+          const verifiedIcon = document.createElement("span");
+          verifiedIcon.textContent = "✔️";
+          verifiedIcon.title = "Verified";
+          verifiedIcon.style.marginRight = "4px";
+          li.insertBefore(verifiedIcon, li.firstChild);
+        }
         if (mutedUsers.has(user.nick)) {
           const mutedIcon = document.createElement("span");
           mutedIcon.textContent = "🔇";
@@ -717,6 +954,7 @@ ws.onmessage = (event) => {
           adminIcon.style.marginRight = "4px";
           li.insertBefore(adminIcon, li.firstChild);
         }
+
         if (is_admin && user.nick !== nick) {
           const moreBtn = document.createElement("button");
           moreBtn.textContent = "⋮";
@@ -782,9 +1020,53 @@ ws.onmessage = (event) => {
     ws.send(JSON.stringify({ type: "check" }));
 
   }
+  if (data.type === "settings-saved") {
+    showError("Settings saved!");
+  }
+  if (data.type === "password-changed") {
+    showError("Password changed!");
+    document.getElementById("account-change-password-form").style.display = "none";
+  }
+  if (data.type === "sessions-list") {
+    const accountSessionsListDiv = document.getElementById("account-sessions-list");
+    if (accountSessionsListDiv) {
+      accountSessionsListDiv.innerHTML = "";
+      if (!data.sessions.length) {
+        accountSessionsListDiv.innerHTML = "<em>No active sessions.</em>";
+      } else {
+        data.sessions.forEach(sess => {
+          const div = document.createElement("div");
+          div.style.marginBottom = "8px";
+          div.innerHTML = `
+            <b>IP:</b> ${sess.ip} <b>Timestamp:</b> ${sess.timestamp} <b>Token:</b> ${sess.token}
+            ${sess.current ? '<span style="color:#007bff;font-weight:bold;">(This session)</span>' : ''}
+            <button class="account-logout-session-btn" data-token="${sess.token}" style="margin-left:10px;">Log out</button>
+          `;
+          accountSessionsListDiv.appendChild(div);
+        });
+        accountSessionsListDiv.querySelectorAll(".account-logout-session-btn").forEach(btn => {
+          btn.onclick = () => {
+            ws.send(JSON.stringify({
+              type: "logout-session",
+              username: loggedInUser,
+              token: btn.dataset.token
+            }));
+          };
+        });
+      }
+    }
+  }
+  if (data.type === "session-logged-out") {
+    showError("Session logged out: " + data.token);
+    ws.send(JSON.stringify({
+      type: "get-sessions",
+      username: loggedInUser
+    }));
+  }
   if (data.type === "users") {
     currentUsers = data.users || [];
     let mutedUsers = new Set(data.muted || []);
+    let verifiedUsers = new Set(data.verified || []);
     adminUsers = new Set(currentUsers.filter(u => u.is_admin).map(u => u.nick));
     userColors = {};
     userList.innerHTML = "";
@@ -796,6 +1078,13 @@ ws.onmessage = (event) => {
       li.textContent = user.nick;
       if (user.color) li.style.color = user.color;
       if (user.nick === nick) li.style.fontWeight = "bold";
+      if (verifiedUsers.has(user.nick)) {
+        const verifiedIcon = document.createElement("span");
+        verifiedIcon.textContent = "✔️";
+        verifiedIcon.title = "Verified";
+        verifiedIcon.style.marginRight = "4px";
+        li.insertBefore(verifiedIcon, li.firstChild);
+      }
       if (mutedUsers.has(user.nick)) {
         const mutedIcon = document.createElement("span");
         mutedIcon.textContent = "🔇";
@@ -803,6 +1092,7 @@ ws.onmessage = (event) => {
         mutedIcon.style.marginRight = "4px";
         li.insertBefore(mutedIcon, li.firstChild);
       }
+
       if (adminUsers.has(user.nick)) {
         const adminIcon = document.createElement("span");
         adminIcon.textContent = "🛡️";
@@ -1015,6 +1305,7 @@ function formatMessage(data, forceDeleted = false) {
       let preview = "";
       const fileMatch = repliedMsg.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>(?:<br>([\s\S]+))?$/);
       const codeMatch = repliedMsg.text.match(/^```(\w+)?\n?([\s\S]*?)```$/);
+      const imgMatch = repliedMsg.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
 
       if (fileMatch) {
         let url = fileMatch[1];
@@ -1042,11 +1333,13 @@ function formatMessage(data, forceDeleted = false) {
           <span style="font-size:1.1em;margin-right:4px;">💻</span>
           <code class="reply-code-preview" style="background:${document.body.classList.contains("dark") ? "#222" : "#eee"};border-radius:3px;padding:2px 10px;font-size:0.98em;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;color:${document.body.classList.contains("dark") ? "#eee" : "#222"};">${escapeHtml(code.length > 180 ? code.slice(0, 180) + "..." : code)}</code>
         </span>`;
+      } else if (imgMatch) {
+        preview = `<img src="${imgMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;"> <span style="color:#888;font-size:0.95em;">GIF</span>`;
       }
 
       const replyText = escapeHtml(repliedMsg.text);
       let shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
-      if (fileMatch || codeMatch) shortText = "";
+      if (fileMatch || codeMatch || imgMatch) shortText = ""
 
       const isDark = document.body.classList.contains("dark");
       const replyBg = isDark ? "#232323" : "#f7f7f7";
@@ -1118,7 +1411,21 @@ function formatMessage(data, forceDeleted = false) {
         <button class="copy-btn" title="Copy code">Copy</button>
       </div>`;
   }
-
+  if (/^<img\s+src="([^"]+)"[^>]*>$/i.test(data.text.trim())) {
+    const imgMatch = data.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
+    const src = imgMatch[1];
+    const favs = userFavorites;
+    const isFav = favs.includes(src);
+    return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+      <div class="chat-img-container" style="margin:8px 0;">
+        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+          <img src="${src}" alt="GIF" class="chat-gif-img"
+              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+              onclick="openImageModal('${src}','GIF')">
+          <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${src}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+        </div>
+      </div>`;
+  }
   let processed = text;
   const codeBlocks = [];
   processed = processed.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
@@ -1138,7 +1445,63 @@ function formatMessage(data, forceDeleted = false) {
     `;
   });
   if (!fileLinkMatch && !singleCodeMatch) {
-    processed = linkify(processed);
+    const parts = text.split(/\s+/);
+    
+    const gifOnlyMatch = parts.length === 1 && /\.gif(\?.*)?$/i.test(parts[0]);
+    
+    if (gifOnlyMatch) {
+      const src = parts[0];
+      const favs = userFavorites;
+      const isFav = favs.includes(src);
+      return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+        <div class="chat-img-container" style="margin:8px 0;">
+          <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+            <img src="${src}" alt="GIF" class="chat-gif-img"
+                style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+                onclick="openImageModal('${src}','GIF')">
+            <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${src}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+          </div>
+        </div>`;
+    }
+
+    let processedParts = parts.map(word => {
+        const favs = userFavorites;
+        const isFav = favs.includes(word);
+        if (/https?:\/\/[^\s<]+?\.gif(\?.*)?/i.test(word)) {
+          return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+            <div class="chat-img-container" style="margin:8px 0;">
+              <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+                <img src="${word}" alt="GIF" class="chat-gif-img"
+                    style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+                    onclick="openImageModal('${word}','GIF')">
+                <button class="chat-gif-fav-btn${isFav ? ' fav' : ''}" data-gif="${word}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">${isFav ? "★" : "❤"}</button>
+              </div>
+            </div>`;
+        } 
+        else if (/https?:\/\/[^\s<]+?\.(png|jpe?g|webp|bmp|svg)(\?.*)?/i.test(word) ||
+                /https?:\/\/encrypted-tbn0\.gstatic\.com\/images/i.test(word)) {
+          return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
+            <div class="chat-img-container" style="margin:8px 0;">
+              <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+                <img src="${word}" alt="Image" class="chat-gif-img"
+                    style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+                    onclick="openImageModal('${word}','Image')">
+              </div>
+            </div>`;
+        } 
+        else if (/https?:\/\/[^\s<]+/i.test(word)) {
+          return `<a href="${word}" target="_blank">${escapeHtml(word)}</a>`;
+        } 
+        else {
+          return escapeHtml(word);
+        }
+      });
+
+    processed = processedParts.join(' ');
+    if (processed.includes('class="chat-img-container"')){
+      return processed;
+    }
+
   }
   return `${replyHtml}${timestamp}${nickHtml} ${processed} ${replyBtn}`;
 }
@@ -1249,7 +1612,13 @@ const fileMatch = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<
 
       const replyText = escapeHtml(originalData.text);
       let shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
+      const imgMatch = originalData.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
 
+      if (fileMatch || codeMatch || imgMatch) shortText = "";
+
+      if (imgMatch) {
+        previewContent = `<img src="${imgMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;">`;
+      }
       if (fileMatch || codeMatch) shortText = "";
 
       replyPreview.innerHTML = `
@@ -1347,7 +1716,7 @@ window.downloadFileWithProgress = function(url, filename) {
     })
     .catch(err => {
       progressDiv.textContent = "";
-      showError("Download failed! Arcabit blocked downloading. If Arcabit ssie pałe to wejdź w pliki i pobierz Browser");
+      showError('Download failed! Arcabit blocked downloading. If Arcabit ssie pałe to skopjuj kod custom przeglondarki <a href="#" id="show-custom-browser-popup" style="color:#3399ff;text-decoration:underline;font-weight:bold;">TUTAJ</a>');
       progressDiv.textContent = "Download failed!";
       setTimeout(() => progressDiv.style.display = "none", 2000);
     });
@@ -1669,6 +2038,525 @@ const observer = new MutationObserver(mutations => {
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
+function safeSend(obj) { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(obj)); } else { ws.addEventListener("open", () => ws.send(JSON.stringify(obj)), { once: true }); } }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const loginModal = document.getElementById("login-modal");
+  const loginBox = document.querySelector(".login-box");
+  const closeLogin = document.getElementById("close-login");
+  const loginToggleBtn = document.getElementById("login-toggle-btn");
+  const loginBtn = document.getElementById("login-btn");
+  const registerBtn = document.getElementById("register-btn");
+  const accountModal = document.getElementById("account-modal");
+  const closeAccountBtn = document.getElementById("close-account-btn");
+  const accountSaveSettingsBtn = document.getElementById("account-save-settings-btn");
+  const accountChangePasswordBtn = document.getElementById("account-change-password-btn");
+  const accountViewSessionsBtn = document.getElementById("account-view-sessions-btn");
+  const accountChangePasswordForm = document.getElementById("account-change-password-form");
+  const accountSubmitPasswordBtn = document.getElementById("account-submit-password-btn");
+  const accountCancelPasswordBtn = document.getElementById("account-cancel-password-btn");
+  const accountSessionsFrame = document.getElementById("account-sessions-frame");
+  const accountSessionsListDiv = document.getElementById("account-sessions-list");
+  const accountCloseSessionsBtn = document.getElementById("account-close-sessions-btn");
+  const saveSettingsBtn = document.getElementById("save-settings-btn");
+  const logoutBtnSettings = document.getElementById("logout-btn-settings");
+  const logoutAllSessionsBtn = document.getElementById("logout-all-sessions-btn");
+  const GIPHY_API_KEY = "5irhUb4BRd1GDHxlFaNUK9FNnXwEmRDG";
+  (function setupGifPicker() {
+  const picker = document.getElementById("giphy-picker");
+  const msgInput = document.getElementById("msg");
+
+  document.addEventListener("click", function(e) {
+    if (e.target.classList.contains("chat-gif-fav-btn")) {
+      const src = e.target.dataset.gif;
+      let favs = userFavorites;
+      const isFav = favs.includes(src);
+      if (isFav) {
+        favs = favs.filter(url => url !== src);
+        e.target.classList.remove("fav");
+        e.target.textContent = "❤";
+        e.target.title = "Add to favorites";
+      } else {
+        favs.push(src);
+        e.target.classList.add("fav");
+        e.target.textContent = "★";
+        e.target.title = "Remove from favorites";
+      }
+      userFavorites = favs;
+      if (loggedInUser) {
+        ws.send(JSON.stringify({
+          type: "save-favorites",
+          username: loggedInUser,
+          favorites: favs
+        }));
+      }
+    }
+  });
+
+  const gifBtn = document.getElementById("gif-btn");
+  gifBtn.addEventListener("click", () => {
+    if (picker.style.display === "block") {
+      picker.style.display = "none";
+    } else showGifPicker();
+  });
+
+  const favKey = "giphy_favorites";
+  const getFavs = () => userFavorites;
+  function saveFavs(arr) {
+    if (loggedInUser) {
+      ws.send(JSON.stringify({
+        type: "save-favorites",
+        username: loggedInUser,
+        favorites: arr
+      }));
+    }
+  }
+  async function showGifPicker() {
+  picker.style.display = "block";
+  picker.innerHTML = `
+    <div id="gif-panel" style="
+      width:520px;max-width:98vw;
+      background:${document.body.classList.contains("dark") ? "#23232b" : "#fff"};
+      color:${document.body.classList.contains("dark") ? "#eee" : "#222"};
+      border-radius:14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.18);
+      padding:18px 18px 12px 18px;
+      font-family:Segoe UI, Arial, sans-serif;
+      transition:background 0.2s;
+      position:relative;
+      animation:fadeInGifPanel 0.25s;
+    ">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <input id="gif-search" placeholder="Search GIFs..." 
+          style="flex:1;padding:10px 14px;border:none;border-radius:8px;background:${document.body.classList.contains("dark") ? "#18181c" : "#f7f7f7"};color:${document.body.classList.contains("dark") ? "#ccc" : "#222"};font-size:1.1em;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+        <button id="gif-close" style="background:none;color:${document.body.classList.contains("dark") ? "#bbb" : "#888"};border:none;font-size:22px;cursor:pointer;">✖</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button class="gif-tab active" data-tab="trending">🔥 Trending</button>
+        <button class="gif-tab" data-tab="favorites">⭐ Favorites</button>
+        <button class="gif-tab" data-tab="search">🔍 Search</button>
+      </div>
+      <div id="gif-grid" 
+        style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+        gap:10px;max-height:55vh;overflow:auto;transition:background 0.2s;"></div>
+    </div>
+    <style>
+      @keyframes fadeInGifPanel { from { opacity:0; transform:scale(0.97);} to { opacity:1; transform:scale(1);} }
+      .gif-tab {
+        flex:1;
+        background:${document.body.classList.contains("dark") ? "#18181c" : "#f0f0f0"};
+        color:${document.body.classList.contains("dark") ? "#ccc" : "#444"};
+        border:none;
+        padding:7px 0;
+        border-radius:8px;
+        cursor:pointer;
+        font-size:1em;
+        font-weight:500;
+        transition:.2s;
+      }
+      .gif-tab:hover { background:${document.body.classList.contains("dark") ? "#383a40" : "#e0e0e0"}; }
+      .gif-tab.active { background:#5865f2; color:#fff; }
+      .gif-item img {
+        width:100%;
+        border-radius:8px;
+        display:block;
+        box-shadow:0 2px 8px rgba(0,0,0,0.08);
+        transition:transform 0.15s;
+      }
+      .gif-item img:hover { transform:scale(1.06); }
+      .gif-item {
+        position:relative;
+        cursor:pointer;
+        overflow:hidden;
+        background:${document.body.classList.contains("dark") ? "#23232b" : "#fff"};
+        border-radius:8px;
+        box-shadow:0 1px 4px rgba(0,0,0,0.07);
+        transition:background 0.2s;
+      }
+      .gif-heart {
+        position:absolute;
+        top:8px; right:8px;
+        font-size:20px;
+        text-shadow:0 0 5px #000;
+        color:#fff;
+        opacity:0.7;
+        transition:.2s;
+        background:rgba(0,0,0,0.18);
+        border-radius:50%;
+        padding:2px 6px;
+      }
+      .gif-heart.fav { color:#f04747; opacity:1; background:rgba(255,255,255,0.18);}
+      .gif-item:hover .gif-heart { opacity:1; transform:scale(1.2); }
+    </style>
+  `;
+  document.addEventListener("mousedown", (e) => {
+    const picker = document.getElementById("giphy-picker");
+    if (picker && picker.style.display === "block" && !picker.contains(e.target) && e.target.id !== "gif-btn") {
+      picker.style.display = "none";
+    }
+  });
+  document.getElementById("gif-close").onclick = () => (picker.style.display = "none");
+  document.getElementById("gif-search").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadGifs("search");
+  });
+  document.getElementById("gif-search").addEventListener("input", () => {
+    loadGifs("search");
+  });
+  picker.querySelectorAll(".gif-tab").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      picker.querySelectorAll(".gif-tab").forEach((b) => b.classList.remove("active"));
+      e.target.classList.add("active");
+      loadGifs(e.target.dataset.tab);
+    })
+  );
+  loadGifs("trending");
+}
+
+  function styleTabs() {
+    const css = document.createElement("style");
+    css.textContent = `
+      .gif-tab {
+        flex:1;
+        background:#1e1f22;
+        color:#ccc;
+        border:none;
+        padding:6px 0;
+        border-radius:6px;
+        cursor:pointer;
+        transition:.2s;
+      }
+      .gif-tab:hover { background:#383a40; }
+      .gif-tab.active { background:#5865f2; color:#fff; }
+      .gif-item img {
+        width:100%;
+        border-radius:6px;
+        display:block;
+      }
+      .gif-item {
+        position:relative;
+        cursor:pointer;
+        overflow:hidden;
+      }
+      .gif-heart {
+        position:absolute;
+        top:6px; right:6px;
+        font-size:18px;
+        text-shadow:0 0 5px #000;
+        color:#fff;
+        opacity:0.7;
+        transition:.2s;
+      }
+      .gif-heart.fav { color:#f04747; opacity:1; }
+      .gif-item:hover .gif-heart { opacity:1; transform:scale(1.2); }
+    `;
+    document.head.appendChild(css);
+  }
+
+  async function loadGifs(tab) {
+    const grid = document.getElementById("gif-grid");
+    grid.innerHTML = "Loading...";
+    let gifs = [];
+
+    if (tab === "favorites") {
+      const favs = userFavorites;
+      if (!favs.length) {
+        grid.innerHTML = "<div style='padding:20px;color:#aaa;'>No favorites yet.</div>";
+        return;
+      }
+      gifs = favs.map((url) => ({ images: { fixed_width: { url } } }));
+    } else {
+      let url = `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=24&rating=g`;
+      if (tab === "search") {
+        const q = document.getElementById("gif-search").value.trim();
+        if (!q) {
+          grid.innerHTML = "<div style='padding:20px;color:#aaa;'>Type something to search.</div>";
+          return;
+        }
+        url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(
+          q
+        )}&limit=24&rating=g`;
+      }
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        gifs = data.data || [];
+      } catch (e) {
+        grid.innerHTML = "Failed to load GIFs.";
+        return;
+      }
+    }
+
+    grid.innerHTML = "";
+    const favs = userFavorites;
+
+    gifs.forEach((gif) => {
+      const src = gif.images.fixed_width.url;
+      const div = document.createElement("div");
+      div.className = "gif-item";
+      div.innerHTML = `
+        <img src="${src}" alt="">
+        <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
+      `;
+      div.querySelector(".gif-heart").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const list = getFavs();
+        const idx = list.indexOf(src);
+        if (idx === -1) list.push(src);
+        else list.splice(idx, 1);
+        saveFavs(list);
+        e.target.classList.toggle("fav");
+        document.querySelectorAll(`.chat-gif-fav-btn[data-gif="${src}"]`).forEach(btn => {
+          if (list.includes(src)) {
+            btn.classList.add("fav");
+            btn.textContent = "★";
+            btn.title = "Remove from favorites";
+          } else {
+            btn.classList.remove("fav");
+            btn.textContent = "❤";
+            btn.title = "Add to favorites";
+          }
+        });
+      });
+      div.addEventListener("click", () => {
+        const payload = {
+          type: "message",
+          nick,
+          text: `<img src="${src}" alt="GIF" style="max-width:220px;max-height:220px;border-radius:8px;">`
+        };
+        if (msgInput.dataset.replyTo) {
+          payload.replyTo = msgInput.dataset.replyTo;
+          msgInput.dataset.replyTo = "";
+          const replyPreview = document.getElementById('reply-preview');
+          if (replyPreview) replyPreview.remove();
+        }
+        ws.send(JSON.stringify(payload));
+        picker.style.display = "none";
+      });
+      grid.appendChild(div);
+    });
+  }
+})();
+
+
+
+
+
+
+
+
+
+  if (logoutAllSessionsBtn) {
+    logoutAllSessionsBtn.onclick = () => {
+      if (!loggedInUser) return showError("Not logged in");
+      ws.send(JSON.stringify({
+        type: "logout-all-sessions",
+        username: loggedInUser
+      }));
+    };
+  }
+  if (saveSettingsBtn) {
+    saveSettingsBtn.onclick = () => {
+      if (!loggedInUser) return showError("Not logged in");
+      const settings = {
+        autoRecover: toggleAutoRecover.checked,
+        gifFeatureEnabled: toggleGifFeature.checked,
+        color: customNickColorInput.value,
+        darkMode: darkModeToggle.checked,
+        showTimestamps: toggleTimestamps.checked,
+        showFileLinks: toggleFileLinks.checked,
+        showReplyBtn: toggleReplyBtn.checked,
+        showImagePreview: toggleImagePreview.checked,
+        postFiles: togglePostFiles.checked
+      };
+      ws.send(JSON.stringify({
+        type: "save-settings",
+        username: loggedInUser,
+        settings
+      }));
+      localStorage.setItem("customNickColor", settings.color);
+      localStorage.setItem("darkMode", settings.darkMode);
+      localStorage.setItem("showTimestamps", settings.showTimestamps);
+      localStorage.setItem("showFileLinks", settings.showFileLinks);
+      localStorage.setItem("showReplyBtn", settings.showReplyBtn);
+      localStorage.setItem("showImagePreview", settings.showImagePreview);
+      localStorage.setItem("togglePostFiles", settings.postFiles);
+      showError("Settings saved!");
+    };
+  }
+
+  if (logoutBtnSettings) {
+    logoutBtnSettings.onclick = () => {
+      loggedInUser = null;
+      localStorage.removeItem("loggedInUser");
+      localStorage.removeItem("sessionToken");
+      updateLoginUI();
+      ws.send(JSON.stringify({ type: "logout" }));
+      document.getElementById("account-modal").style.display = "none";
+      document.getElementById("account-change-password-form").style.display = "none";
+      document.getElementById("account-sessions-frame").style.display = "none";
+    };
+  }
+
+
+
+  document.getElementById("login-toggle-btn").addEventListener("click", () => {
+      if (loggedInUser) accountModal.style.display = "flex";
+    });
+
+    closeAccountBtn.onclick = () => {
+      accountModal.style.display = "none";
+      accountChangePasswordForm.style.display = "none";
+      accountSessionsFrame.style.display = "none";
+    };
+
+    accountSaveSettingsBtn.onclick = () => {
+      if (!loggedInUser) return showError("Not logged in");
+      const settings = {
+        autoRecover: toggleAutoRecover.checked,
+        gifFeatureEnabled: toggleGifFeature.checked,
+        color: customNickColorInput.value,
+        darkMode: darkModeToggle.checked,
+        showTimestamps: toggleTimestamps.checked,
+        showFileLinks: toggleFileLinks.checked,
+        showReplyBtn: toggleReplyBtn.checked,
+        showImagePreview: toggleImagePreview.checked,
+        postFiles: togglePostFiles.checked
+      };
+      ws.send(JSON.stringify({
+        type: "save-settings",
+        username: loggedInUser,
+        settings
+      }));
+      localStorage.setItem("customNickColor", settings.color);
+      localStorage.setItem("darkMode", settings.darkMode);
+      localStorage.setItem("showTimestamps", settings.showTimestamps);
+      localStorage.setItem("showFileLinks", settings.showFileLinks);
+      localStorage.setItem("showReplyBtn", settings.showReplyBtn);
+      localStorage.setItem("showImagePreview", settings.showImagePreview);
+      localStorage.setItem("togglePostFiles", settings.postFiles);
+      showError("Settings saved!");
+    };
+
+    accountChangePasswordBtn.onclick = () => {
+      accountChangePasswordForm.style.display = "block";
+    };
+    accountCancelPasswordBtn.onclick = () => {
+      accountChangePasswordForm.style.display = "none";
+    };
+    accountSubmitPasswordBtn.onclick = () => {
+      const oldPw = document.getElementById("account-old-password").value;
+      const newPw = document.getElementById("account-new-password").value;
+      if (!oldPw || !newPw) return showError("Fill both fields");
+      ws.send(JSON.stringify({
+        type: "change-password",
+        username: loggedInUser,
+        old_password: oldPw,
+        new_password: newPw
+      }));
+    };
+
+    accountViewSessionsBtn.onclick = () => {
+      if (!loggedInUser) return showError("Not logged in");
+      ws.send(JSON.stringify({
+        type: "get-sessions",
+        username: loggedInUser
+      }));
+      accountSessionsFrame.style.display = "block";
+      accountSessionsListDiv.innerHTML = "<em>Loading...</em>";
+    };
+    accountCloseSessionsBtn.onclick = () => {
+      accountSessionsFrame.style.display = "none";
+    };
+
+  loginToggleBtn.style.position = "relative";
+
+
+
+  loginToggleBtn.addEventListener("click", (e) => {
+    if (!loggedInUser) {
+      openModal();
+    }
+  });
+
+  document.addEventListener("click", function(e) {
+    if (e.target && e.target.id === "show-custom-browser-popup") {
+      e.preventDefault();
+      document.getElementById("custom-browser-popup").style.display = "flex";
+    }
+    if (e.target && e.target.id === "close-custom-browser-popup") {
+      document.getElementById("custom-browser-popup").style.display = "none";
+    }
+    if (e.target && e.target.id === "copy-custom-browser-code") {
+      const ta = document.getElementById("custom-browser-code");
+      ta.select();
+      document.execCommand("copy");
+      e.target.textContent = "Copied!";
+      setTimeout(() => { e.target.textContent = "Copy code"; }, 1200);
+    }
+  });
+  document.getElementById("custom-browser-popup").addEventListener("mousedown", function(e) {
+    if (e.target === this) this.style.display = "none";
+  });
+
+  let clickStartedInside = false;
+  loginModal.addEventListener("mousedown", (e) => {
+    clickStartedInside = loginBox.contains(e.target);
+  });
+  loginModal.addEventListener("mouseup", (e) => {
+    if (!loginBox.contains(e.target) && !clickStartedInside) {
+      closeModal();
+    }
+  });
+  closeLogin.addEventListener("click", closeModal);
+
+  loginBtn.addEventListener("click", () => {
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value.trim();
+    safeSend({ type: "login", username, password });
+  });
+  registerBtn.addEventListener("click", () => {
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value.trim();
+    safeSend({ type: "register", username, password });
+  });
+
+  updateLoginUI();
+});
+
+function openModal() {
+  const loginModal = document.getElementById("login-modal");
+  loginModal.style.display = "flex";
+}
+
+function closeModal() {
+  const loginModal = document.getElementById("login-modal");
+  const loginBox = document.querySelector(".login-box");
+  loginModal.style.animation = "fadeOutOverlay 0.25s ease forwards";
+  loginBox.style.animation = "slideUpFade 0.25s ease forwards";
+  setTimeout(() => {
+    loginModal.style.display = "none";
+    loginModal.style.animation = "";
+    loginBox.style.animation = "";
+  }, 250);
+}
+function updateLoginUI() {
+    const loginToggleBtn = document.getElementById("login-toggle-btn");
+    const logoutDropdown = loginToggleBtn.parentNode.querySelector("div");
+    if (loggedInUser) {
+        loginToggleBtn.textContent = loggedInUser + " ⬇️";
+    } else {
+        loginToggleBtn.textContent = "🔑 Log in";
+        if (logoutDropdown) logoutDropdown.style.display = "none";
+    }
+}
+document.getElementById("account-modal").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("account-modal")) {
+    document.getElementById("account-modal").style.display = "none";
+    document.getElementById("account-change-password-form").style.display = "none";
+    document.getElementById("account-sessions-frame").style.display = "none";
+  }
+});
+
 
 
 

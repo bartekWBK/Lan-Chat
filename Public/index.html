@@ -13,7 +13,53 @@
   <script src="prism.js"></script>
 </head>
 <body>
+<div id="giphy-picker" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;"></div>
+<div id="account-modal" class="settings-modal" style="display:none;">
+  <div class="settings-content">
+    <span class="close-settings" id="close-account-btn">&times;</span>
+    <h2>Account Settings</h2>
+    <div id="account-settings-panel">
+      <button id="account-save-settings-btn">💾 Save Settings</button>
+      <button id="account-view-sessions-btn">🖥 View Sessions</button>
+      <button id="account-change-password-btn">🔒 Change Password</button>
+      <div id="account-change-password-form" style="display:none; margin-top:10px;">
+        <input type="password" id="account-old-password" placeholder="Old password" style="margin-bottom:6px;">
+        <input type="password" id="account-new-password" placeholder="New password" style="margin-bottom:6px;">
+        <button id="account-submit-password-btn">Change</button>
+        <button id="account-cancel-password-btn" type="button">Cancel</button>
+      </div>
+      <div id="account-sessions-frame" style="display:none; margin-top:10px; max-height:260px; overflow-y:auto; border:1px solid #eee; border-radius:8px; background:#fafafa; padding:10px;">
+        <h4>Active Sessions</h4>
+        <div id="account-sessions-list" style="max-height:180px; overflow-y:auto;"></div>
+        <button id="logout-all-sessions-btn" style="background:#dc3545; margin-top:10px;">Log out from all sessions</button>
+        <button id="account-close-sessions-btn" type="button" style="margin-top:10px;">Close</button>
+      </div>
+      <button id="logout-btn-settings" style="background:#dc3545;margin-top:10px;">Log out</button>
+    </div>
+  </div>
+</div>
+
   <h1 id="LAN"><b>LAN Chat</b></h1>
+
+<div id="top-right">
+  <button id="login-toggle-btn">🔑 Log in</button>
+</div>
+
+
+
+<div id="login-modal" class="login-modal">
+  <div class="login-box">
+    <span id="close-login">&times;</span>
+    <h2>Log in</h2>
+    <input type="text" id="login-username" placeholder="Username">
+    <input type="password" id="login-password" placeholder="Password">
+    <div class="button-row">
+      <button id="login-btn">Login</button>
+      <button id="register-btn">Register</button>
+    </div>
+  </div>
+</div>
+
 
 <div id="container">
   <div id="sidebar">
@@ -35,13 +81,51 @@
         <h2>Settings</h2>
         <div id="settings-list">
           <button id="wipe-blacklist-btn" style="display:none;">🧹 Wipe All Blacklisted Users</button>
-          <label><input type="checkbox" id="toggle-reply-btn" /> Show reply button</label>
-          <label><input type="checkbox" id="toggle-timestamps" /> Show Timestamps</label>
-          <label><input type="checkbox" id="toggle-image-preview" checked /> Show image previews</label>
-          <label><input type="checkbox" id="toggle-darkmode" checked /> Dark Mode</label>
-          <label><input type="checkbox" id="toggle-file-links" /> Show files list</label>
-          <label><input type="checkbox" id="toggle-post-files" /> Post files</label>
-          <div class="nick-color-row">
+
+          <h3 class="settings-section-title">General</h3>
+          <label class="switch">
+            <input type="checkbox" id="toggle-auto-recover">
+            <span class="slider"></span>
+            <span class="switch-label">Auto recover chat</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-gif-feature" checked>
+            <span class="slider"></span>
+            <span class="switch-label">Enable GIF feature</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-post-files">
+            <span class="slider"></span>
+            <span class="switch-label">Post files</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-reply-btn">
+            <span class="slider"></span>
+            <span class="switch-label">Show reply button</span>
+          </label>
+
+          <h3 class="settings-section-title">Appearance</h3>
+          <label class="switch">
+            <input type="checkbox" id="toggle-timestamps">
+            <span class="slider"></span>
+            <span class="switch-label">Show Timestamps</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-image-preview" checked>
+            <span class="slider"></span>
+            <span class="switch-label">Show image previews</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-darkmode" checked>
+            <span class="slider"></span>
+            <span class="switch-label">Dark Mode</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-file-links">
+            <span class="slider"></span>
+            <span class="switch-label">Show files list</span>
+          </label>
+          <div class="nick-color-row" style="margin-left:10px;">
             <label for="custom-nick-color" style="margin-bottom:0;">Nick color:</label>
             <input type="color" id="custom-nick-color">
             <button id="set-color-btn" style="margin-bottom:0;">Set</button>
@@ -55,10 +139,8 @@
   <div id="main-chat">
     <div id="chat" class="chat-box"></div>
     <div class="input-area">
-      <button id="attach-btn" title="Attach file" style="padding:0 14px;font-size:1.5em;line-height:1;">+</button>
-      <div id="attach-popup" style="display:none;position:absolute;bottom:60px;left:0;z-index:1001; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.13); padding:10px 0; min-width:140px;">
-        <button id="attach-file-btn" style="width:100%;padding:8px 0;border:none;background:none;cursor:pointer;font-size:1em;">📎 Attach file</button>
-      </div>
+      <button id="attach-file-btn" title="Attach file" style="padding:0 14px;font-size:1.5em;line-height:1;">+</button>
+      <button id="gif-btn" title="GIFs" style="padding:0 12px;">🎬</button>
       <textarea id="msg" placeholder="Type your message..."></textarea>
       <button id="send">Send</button>
       <button id="code">Code</button>
@@ -112,11 +194,156 @@
   padding:8px 12px;
   border-radius:5px;
   font-size:0.9em;
-  z-index:1000;
+  z-index:999999;
 "></div>
+  <div id="custom-browser-popup" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
+    <div style="background:#fff;color:#222;max-width:600px;width:95vw;padding:28px 18px 18px 18px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);position:relative;">
+      <button id="close-custom-browser-popup" style="position:absolute;top:10px;right:16px;font-size:1.5em;background:none;border:none;color:#888;cursor:pointer;">✖</button>
+      <h2 style="margin-top:0;">Custom Browser App</h2>
+      <p>Copy and use this code to run the custom browser app:</p>
+      <textarea readonly style="width:100%;height:180px;resize:vertical;font-family:monospace;font-size:1em;padding:8px;border-radius:6px;border:1px solid #ccc;background:#f7f7f7;box-sizing:border-box;" id="custom-browser-code">
+import sys
+import subprocess
+import importlib
+
+required = ["PyQt5", "PyQtWebEngine"]
+print("downloading to ścierwo jebane przez cwelów z arcabit")
+for lib in required:
+    try:
+        importlib.import_module(lib)
+    except ImportError:
+        print(f"{lib} not found. Installing (skill issue)...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
+
+
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout,
+    QWidget, QDockWidget, QListWidget, QFileDialog, QMessageBox
+)
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineDownloadItem
+from PyQt5.QtCore import QUrl, QStandardPaths
+import os, json
+
+BOOKMARKS_FILE = "bookmarks.json"
+
+class Browser(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Jakiś Cwelowski ShitBrowser z chata - jak chcesz pobrać z listy plik to middle click")
+        self.setGeometry(100, 100, 1200, 800)
+
+        self.web_view = QWebEngineView()
+        self.web_view.load(QUrl("https://www.google.com"))
+
+        self.url_bar = QLineEdit()
+        self.url_bar.returnPressed.connect(self.navigate_to_url)
+
+        back_btn = QPushButton("◀")
+        back_btn.clicked.connect(self.web_view.back)
+
+        forward_btn = QPushButton("▶")
+        forward_btn.clicked.connect(self.web_view.forward)
+
+        reload_btn = QPushButton("⟳")
+        reload_btn.clicked.connect(self.web_view.reload)
+
+        home_btn = QPushButton("🏠")
+        home_btn.clicked.connect(self.navigate_home)
+
+        save_btn = QPushButton("⭐ Save")
+        save_btn.clicked.connect(self.save_bookmark)
+
+        nav_layout = QHBoxLayout()
+        nav_layout.addWidget(back_btn)
+        nav_layout.addWidget(forward_btn)
+        nav_layout.addWidget(reload_btn)
+        nav_layout.addWidget(home_btn)
+        nav_layout.addWidget(self.url_bar)
+        nav_layout.addWidget(save_btn)
+
+        main_layout = QVBoxLayout()
+        main_layout.addLayout(nav_layout)
+        main_layout.addWidget(self.web_view)
+
+        container = QWidget()
+        container.setLayout(main_layout)
+        self.setCentralWidget(container)
+
+        self.bookmarks = QListWidget()
+        self.bookmarks.itemClicked.connect(self.load_bookmark)
+        dock = QDockWidget("Bookmarks", self)
+        dock.setWidget(self.bookmarks)
+        self.addDockWidget(2, dock)
+        self.web_view.page().profile().downloadRequested.connect(self.handle_download)
+        self.load_bookmarks()
+        self.web_view.urlChanged.connect(self.update_url_bar)
+
+    def update_url_bar(self, q):
+        self.url_bar.setText(q.toString())
+
+    def navigate_to_url(self):
+        url = self.url_bar.text()
+        if not url.startswith("http"):
+            url = "http://" + url
+        self.web_view.load(QUrl(url))
+
+    def navigate_home(self):
+        self.web_view.load(QUrl("https://www.google.com"))
+
+    def save_bookmark(self):
+        current_url = self.web_view.url().toString()
+        if current_url not in [self.bookmarks.item(i).text() for i in range(self.bookmarks.count())]:
+            self.bookmarks.addItem(current_url)
+            self.persist_bookmarks()
+            QMessageBox.information(self, "Bookmark Saved", "Bookmark added successfully!")
+
+    def load_bookmark(self, item):
+        self.web_view.load(QUrl(item.text()))
+
+    def persist_bookmarks(self):
+        bookmarks = [self.bookmarks.item(i).text() for i in range(self.bookmarks.count())]
+        with open(BOOKMARKS_FILE, "w") as f:
+            json.dump(bookmarks, f)
+
+    def load_bookmarks(self):
+        if os.path.exists(BOOKMARKS_FILE):
+            with open(BOOKMARKS_FILE, "r") as f:
+                bookmarks = json.load(f)
+                self.bookmarks.addItems(bookmarks)
+
+    def handle_download(self, download: QWebEngineDownloadItem):
+        suggested_filename = download.suggestedFileName()
+        default_path = os.path.join(
+            QStandardPaths.writableLocation(QStandardPaths.DownloadLocation),
+            suggested_filename
+        )
+
+        save_path, _ = QFileDialog.getSaveFileName(self, "Save File", default_path)
+
+        if save_path:
+            download.setPath(save_path)
+            download.accept()
+            download.finished.connect(
+                lambda: QMessageBox.information(self, "Download Complete", f"File saved to:\n{save_path}")
+            )
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    browser = Browser()
+    browser.show()
+    sys.exit(app.exec_())
+      </textarea>
+      <button id="copy-custom-browser-code" style="margin-top:10px;padding:7px 18px;font-size:1em;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">Copy code</button>
+    </div>
+  </div>
 
   <script id="chat-js" src="chat.js"></script>
 
 </body>
 
 </html>
+
+<!-- 
+-- add auto recovery of chat 
+-- change settings looks
+-->

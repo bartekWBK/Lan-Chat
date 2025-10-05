@@ -1290,3 +1290,574 @@ body.dark .highlight-reply {
   border: none;
   object-fit: contain;    
 }
+
+#top-right {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+}
+
+#login-toggle-btn {
+  padding: 6px 12px;
+  font-size: 0.95em;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.login-modal {
+  display: none; /* hidden by default */
+  position: fixed;
+  inset: 0; /* top:0; right:0; bottom:0; left:0 */
+  background: rgba(0,0,0,0.6);
+  justify-content: center;
+  align-items: center;
+  z-index: 5000;
+  overflow: hidden;
+  animation: fadeInOverlay 0.3s ease forwards;
+  transition: background 0.3s;
+}
+
+/* Light theme login box */
+.login-box {
+  background: #fff;
+  color: #222;
+  border-radius: 12px;
+  padding: 30px 25px;
+  width: 320px;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  position: relative;
+  transform: translateY(-30px);
+  opacity: 0;
+  animation: slideDownFade 0.35s ease forwards;
+  transition: background 0.3s, color 0.3s, box-shadow 0.3s;
+}
+
+.login-box h2 {
+  text-align: center;
+  margin: 0 0 15px 0;
+  font-size: 1.6em;
+  color: #222;
+}
+
+.login-box input {
+  background: #f9f9f9;
+  color: #222;
+  border: 1px solid #ccc;
+  padding: 10px;
+  border-radius: 6px;
+  transition: background 0.3s, border-color 0.3s, color 0.3s;
+}
+
+.login-box input::placeholder {
+  color: #999;
+}
+
+.login-box input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 6px rgba(0,123,255,0.4);
+  outline: none;
+}
+
+/* Buttons side by side */
+.login-box .button-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.login-box button {
+  flex: 1;
+  background: #007bff;
+  color: #fff;
+  border: 1px solid #007bff;
+  padding: 10px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.3s, transform 0.1s;
+}
+
+.login-box button:hover {
+  background: #0056b3;
+  transform: translateY(-1px);
+}
+
+.login-box button:active {
+  transform: translateY(0);
+}
+
+/* Close button */
+#close-login {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 22px;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.2s, transform 0.2s;
+}
+
+#close-login:hover {
+  color: #000;
+  transform: scale(1.1);
+}
+
+/* Dark theme overrides */
+body.dark .login-modal {
+  background: rgba(0,0,0,0.85);
+}
+
+body.dark .login-box {
+  background: #1f1f1f;
+  color: #eee;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.7);
+}
+
+body.dark .login-box h2 {
+  color: #fff;
+}
+
+body.dark .login-box input {
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #555;
+}
+
+body.dark .login-box input::placeholder {
+  color: #aaa;
+}
+
+body.dark .login-box input:focus {
+  border-color: #3399ff;
+  box-shadow: 0 0 6px rgba(51,153,255,0.5);
+}
+
+body.dark .login-box button {
+  background: #3399ff;
+  border: 1px solid #3399ff;
+  color: #fff;
+}
+
+body.dark .login-box button:hover {
+  background: #1a73e8;
+}
+
+body.dark #close-login {
+  color: #ccc;
+}
+
+body.dark #close-login:hover {
+  color: #fff;
+}
+
+/* Animations */
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideDownFade {
+  from { opacity: 0; transform: translateY(-30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUpFade {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-30px); }
+}
+
+@keyframes fadeOutOverlay {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+#account-modal.settings-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1002;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+}
+
+#account-modal .settings-content {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+  padding: 32px 28px 24px 28px;
+  min-width: 320px;
+  max-width: 95vw;
+  position: relative;
+}
+
+#account-modal h2 {
+  margin-top: 0;
+  margin-bottom: 18px;
+  font-size: 1.4em;
+  font-weight: bold;
+}
+
+#account-modal .close-settings {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 1.6em;
+  color: #888;
+  cursor: pointer;
+  font-weight: bold;
+  transition: color 0.2s;
+}
+#account-modal .close-settings:hover {
+  color: #d00;
+}
+
+#account-settings-panel button {
+  margin: 6px 0;
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: none;
+  background: #007bff;
+  color: #fff;
+  font-size: 1em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#account-settings-panel button:hover {
+  background: #0056b3;
+}
+
+#account-settings-panel input[type="password"] {
+  display: block;
+  width: 90%;
+  margin-bottom: 7px;
+  padding: 7px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+#account-sessions-list {
+  margin-top: 8px;
+  font-size: 0.98em;
+}
+#account-sessions-list div {
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+}
+#account-sessions-list button {
+  background: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 10px;
+  margin-left: 10px;
+  cursor: pointer;
+  font-size: 0.95em;
+}
+#account-sessions-list button:hover {
+  background: #a71d2a;
+}
+
+body.dark #account-modal .settings-content {
+  background: #222;
+  color: #eee;
+}
+body.dark #account-modal .close-settings {
+  color: #bbb;
+}
+body.dark #account-modal .close-settings:hover {
+  color: #ff4444;
+}
+body.dark #account-settings-panel button {
+  background: #444;
+  color: #fff;
+}
+body.dark #account-settings-panel button:hover {
+  background: #222;
+}
+body.dark #account-settings-panel input[type="password"] {
+  background: #333;
+  color: #eee;
+  border: 1px solid #444;
+}
+body.dark #account-sessions-list div {
+  border-bottom: 1px solid #333;
+}
+body.dark #account-sessions-list button {
+  background: #a71d2a;
+}
+body.dark #account-sessions-list button:hover {
+  background: #dc3545;
+}
+#account-sessions-frame {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+  padding: 10px;
+}
+#account-sessions-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+body.dark #account-sessions-frame {
+  background: #232323 !important;
+  border-color: #333 !important;
+  color: #eee !important;
+}
+body.dark #account-sessions-list {
+  background: #232323 !important;
+  color: #eee !important;
+}
+body.dark #account-sessions-list div {
+  border-bottom: 1px solid #333 !important;
+}
+body.dark #logout-all-sessions-btn,
+body.dark .account-logout-session-btn {
+  background: #a71d2a !important;
+  color: #fff !important;
+}
+body.dark #logout-all-sessions-btn:hover,
+body.dark .account-logout-session-btn:hover {
+  background: #dc3545 !important;
+}
+
+
+
+
+
+#gif-popup {
+  position: absolute;
+  z-index: 1002;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.13);
+  padding: 12px;
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+body.dark #gif-popup {
+  background: #232323 !important;
+  color: #eee !important;
+  border-color: #444 !important;
+}
+
+body.dark #gif-popup input {
+  background: #333 !important;
+  color: #eee !important;
+  border: 1px solid #444 !important;
+}
+
+body.dark #gif-results img,
+body.dark #gif-favorites img {
+  border: 2px solid #444 !important;
+}
+
+body.dark #gif-results,
+body.dark #gif-favorites {
+  background: #232323 !important;
+  color: #eee !important;
+}
+body.dark #close-gif-popup {
+  background: #444 !important;
+  color: #eee !important;
+  border: 1px solid #666 !important;
+}
+body.dark #close-gif-popup:hover {
+  background: #222 !important;
+}
+
+body.dark #gif-popup::-webkit-scrollbar,
+body.dark #gif-results::-webkit-scrollbar,
+body.dark #gif-favorites::-webkit-scrollbar {
+  background: #232323;
+}
+body.dark #gif-popup::-webkit-scrollbar-thumb,
+body.dark #gif-results::-webkit-scrollbar-thumb,
+body.dark #gif-favorites::-webkit-scrollbar-thumb {
+  background: #444;
+}
+.chat-img-container {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin: 8px 0;
+}
+.chat-img-container img {
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  cursor: pointer;
+} 
+.chat-img-container {
+  position: relative;
+}
+
+.chat-img-container span {
+  position: relative;
+  display: inline-block;
+}
+
+.chat-gif-img {
+  display: block;
+}
+
+.chat-gif-fav-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(240, 71, 71, 0.85);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  font-size: 1.1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  cursor: pointer;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.15s;
+}
+
+.chat-img-wrapper:hover .chat-gif-fav-btn {
+  opacity: 1;
+}
+.chat-img-wrapper{
+    margin-left: -20%;
+}
+.chat-img-container {
+  position: relative;
+  display: inline-block; 
+  line-height: 0; 
+}
+
+.settings-section-title {
+  margin-top: 18px;
+  margin-bottom: 8px;
+  font-size: 1.08em;
+  color: #3399ff;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 2px;
+}
+body.dark .settings-section-title {
+  color: #66aaff;
+  border-bottom: 1px solid #333;
+}
+#settings-list label {
+  margin-left: 10px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#settings-list .nick-color-row {
+  margin-left: 10px;
+  margin-bottom: 10px;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  font-size: 1.08em;
+  user-select: none;
+}
+
+.switch input[type="checkbox"] {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #ccc;
+  border-radius: 24px;
+  transition: background 0.2s;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+
+.switch .slider:before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+}
+
+.switch input[type="checkbox"]:checked + .slider {
+  background: #3399ff;
+}
+
+.switch input[type="checkbox"]:checked + .slider:before {
+  transform: translateX(20px);
+  background: #fff;
+}
+
+.switch .switch-label {
+  margin-left: 4px;
+  color: #222;
+  font-weight: 500;
+}
+
+body.dark .switch .slider {
+  background: #444;
+}
+body.dark .switch input[type="checkbox"]:checked + .slider {
+  background: #66aaff;
+}
+body.dark .switch-label {
+  color: #eee;
+}
+body.dark #custom-browser-popup > div {
+  background: #23232b !important;
+  color: #eee !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+}
+
+body.dark #custom-browser-popup h2 {
+  color: #aaccff;
+}
+
+body.dark #custom-browser-popup textarea {
+  background: #18181c !important;
+  color: #d8e6ff !important;
+  border: 1px solid #333 !important;
+}
+
+body.dark #custom-browser-popup button,
+body.dark #custom-browser-popup #copy-custom-browser-code {
+  background: #3399ff !important;
+  color: #fff !important;
+  border: none;
+}
+
+body.dark #custom-browser-popup #close-custom-browser-popup {
+  color: #aaa !important;
+}
+
+body.dark #custom-browser-popup p {
+  color: #b0b0b0;
+}

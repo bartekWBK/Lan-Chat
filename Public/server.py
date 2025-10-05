@@ -11,23 +11,60 @@ import random
 from email.parser import BytesParser
 from email.policy import default as default_policy
 from urllib.parse import unquote
-import shutil
+import time
 import logging
-LoggAllowed = False
+LoggAllowed = True
+SESSION_FILE = "../UserData/sessions.json"
+USER_DB_FILE = "../UserData/users.json"
+sessions = {}
+connected_websockets = {}
+verified = []
+os.makedirs("../UserData", exist_ok=True)
 if LoggAllowed:
-    os.makedirs("Logs", exist_ok=True)
-    os.makedirs("Logs/AllLogs", exist_ok=True)
-    os.makedirs("Logs/IpLogs", exist_ok=True)
+    os.makedirs("../Logs", exist_ok=True)
+    os.makedirs("../Logs/AllLogs", exist_ok=True)
+    os.makedirs("../Logs/IpLogs", exist_ok=True)
 
 if LoggAllowed:
     logging.basicConfig(
-        filename="Logs/AllLogs/" + datetime.now().strftime("%Y-%m-%d   %H_%M    %S") + " (y-m-d h_m s) chat_log.txt",
+        filename="../Logs/AllLogs/" + datetime.now().strftime("%Y-%m-%d   %H_%M    %S") + " (y-m-d h_m s) chat_log.txt",
         level=logging.INFO,
         format="%(asctime)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
+if os.path.exists(SESSION_FILE):
+    with open(SESSION_FILE, "r", encoding="utf-8") as f:
+        sessions = json.load(f)
 
+def save_sessions():
+    with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        json.dump(sessions, f)
 
+def load_sessions():
+    global sessions
+    if os.path.exists(SESSION_FILE):
+        with open(SESSION_FILE, "r", encoding="utf-8") as f:
+            sessions = json.load(f)
+    else:
+        sessions = {}
+load_sessions()
+def load_users():
+    if os.path.exists(USER_DB_FILE):
+        with open(USER_DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(USER_DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f)
+
+def is_user_online(username):
+    for token in sessions.get(username, []):
+        if token in connected_websockets:
+            return True
+    return False
+
+users_db = load_users()
 
 chat_history = []
 clients = set()
@@ -37,9 +74,7 @@ blacklist = set()
 os.makedirs("uploads", exist_ok=True)
 last_color_change = {}
 COLOR_COOLDOWN = 5
-if not os.path.exists("uploads/Browser.py"):
-    destination_file = os.path.join("uploads", "Browser.py")
-    shutil.copy("Browser.py", destination_file)
+
 
 COLOR_PALETTE = [
     "#007bff", "#28a745", "#e83e8c", "#fd7e14", "#20c997",
@@ -48,9 +83,23 @@ COLOR_PALETTE = [
     "#8a2be2", "#ff4500", "#228b22", "#00bfff", "#ff69b4"
 ]
 
+def check_For_Barteks_Niggerness(hex_color, bg_light="#f2f2f2", bg_dark="#232323"):
+    def hex_to_rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+    rgb = hex_to_rgb(hex_color)
+    rgb_light = hex_to_rgb(bg_light)
+    rgb_dark = hex_to_rgb(bg_dark)
+    dist_light = sum((a - b) ** 2 for a, b in zip(rgb, rgb_light)) ** 0.5
+    dist_dark = sum((a - b) ** 2 for a, b in zip(rgb, rgb_dark)) ** 0.5
+    if dist_light < 30 or dist_dark < 30:
+        return True
+    banned = {"#fff", "#ffffff", "#f2f2f2", "#121212", "#232323"}
+    return hex_color.lower() in banned
+
 async def notify_users():
     user_list = [{"nick": u["nick"], "color": u["color"], "is_admin": u.get("is_admin", False)} for u in users.values()]
-    message = json.dumps({"type": "users", "users": user_list, "muted": list(muted), "blacklist": list(blacklist)})
+    message = json.dumps({"type": "users", "users": user_list, "muted": list(muted), "blacklist": list(blacklist), "verified": verified})
 
     to_remove = set()
     tasks = []
@@ -65,10 +114,30 @@ async def notify_users():
             to_remove.add(list(clients)[i])
     for client in to_remove:
         clients.discard(client)
-        users.pop(client, None)
+        users.pop(client, None) 
 
-def get_unique_nick(base_nick):
+def get_unique_nick(base_nick, force=False):
     existing = set(u["nick"] for u in users.values())
+    if force:
+        for ws, info in list(users.items()):
+            if info["nick"] == base_nick:
+                if f"Mr.Fake_{base_nick}" not in existing:
+                    new_nick = f"Mr.Fake_{base_nick}"
+                    users[ws]["nick"] = new_nick
+                    asyncio.create_task(ws.send(json.dumps({"type": "nick-update", "nick": new_nick})))
+                    existing.add(new_nick)
+                    break
+                else:
+                    i = 1
+                    new_nick = f"Mr.Fake_{base_nick}_{i}"
+                    while new_nick in existing:
+                        i += 1
+                        new_nick = f"Mr.Fake_{base_nick}_{i}"
+                    users[ws]["nick"] = new_nick
+                    asyncio.create_task(ws.send(json.dumps({"type": "nick-update", "nick": new_nick})))
+                    existing.add(new_nick)
+                    break
+        return base_nick
     if base_nick not in existing:
         return base_nick
     i = 1
@@ -81,7 +150,7 @@ async def chat_handler(websocket):
     if peer_ip in blacklist:
         if LoggAllowed:
             timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-            ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+            ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
             with open(ip_log_path, "a", encoding="utf-8") as ip_log:
                 ip_log.write(f"!!Tried To Join But Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
         await websocket.send(json.dumps({"type": "kicked", "reason": "banned"}))
@@ -102,14 +171,197 @@ async def chat_handler(websocket):
             if msg_type == "ping":
                 await websocket.send(json.dumps({"type": "pong"}))
                 continue
+            if msg_type == "logout-all-sessions":
+                username = data.get("username")
+                tokens = list(sessions.get(username, {}).keys())
+                for token in tokens:
+                    ws = connected_websockets.get(token)
+                    if ws:
+                        await ws.send(json.dumps({"type": "kicked", "reason": "logged-out"}))
+                        await ws.close()
+                    sessions[username].pop(token, None)
+                    connected_websockets.pop(token, None)
+                if username in sessions and not sessions[username]:
+                    sessions.pop(username)
+                save_sessions()
+                await websocket.send(json.dumps({"type": "sessions-logged-out"}))
+                continue
+            if msg_type == "register":
+                username = data.get("username")
+                password = data.get("password")
+                if not username or not password:
+                    await websocket.send(json.dumps({"type": "auth-error", "message": "Username and password required"}))
+                    continue
+                if len(username) < 1 or len(username) > 16:
+                    await websocket.send(json.dumps({"type": "auth-error", "message": "Username must be 1-16 characters"}))
+                    continue
+                if username in users_db:
+                    await websocket.send(json.dumps({"type": "auth-error", "message": "Username already exists"}))
+                else:
+                    users_db[username] = {"password": password}
+                    save_users(users_db)
+                    token = str(uuid.uuid4())
+                    if username not in sessions:
+                        sessions[username] = {}
+                    sessions[username][token] = {
+                        "ip": websocket.remote_address[0],
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    connected_websockets[token] = websocket
+                    verified.append(username)
+                    save_sessions()
+                    await websocket.send(json.dumps({"type": "register-success"}))
+                    await websocket.send(json.dumps({"type": "login-success", "token": token, "username": username}))
+                    await websocket.send(json.dumps({
+                        "type": "user-settings",
+                        "settings": users_db[username].get("settings", {})
+                    }))
+                    await notify_users()
+                continue
+            if msg_type == "save-settings":
+                username = data.get("username")
+                settings = data.get("settings")
+                if username in users_db:
+                    users_db[username]["settings"] = settings 
+                    if "color" in settings:
+                        users_db[username]["color"] = settings["color"]  
+                    save_users(users_db)
+                    await websocket.send(json.dumps({"type": "settings-saved"}))
+                else:
+                    await websocket.send(json.dumps({"type": "error", "message": "User not found"}))
+                continue
+
+            if msg_type == "get-settings":
+                username = data.get("username")
+                if username in users_db and "settings" in users_db[username]:
+                    await websocket.send(json.dumps({
+                        "type": "user-settings",
+                        "settings": users_db[username]["settings"]
+                    }))
+                else:
+                    await websocket.send(json.dumps({
+                        "type": "user-settings",
+                        "settings": {}
+                    }))
+                continue
+
+            if msg_type == "login":
+                username = data.get("username")
+                password = data.get("password")
+                if is_user_online(username):
+                    await websocket.send(json.dumps({"type": "auth-error", "message": "This account is already logged in elsewhere."}))
+                    continue
+                if username in users_db and users_db[username]["password"] == password:
+                    token = str(uuid.uuid4())
+                    if username not in sessions:
+                        sessions[username] = {}
+                    sessions[username][token] = {
+                        "ip": websocket.remote_address[0],
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    connected_websockets[token] = websocket
+                    verified.append(username)
+                    save_sessions()
+                    await websocket.send(json.dumps({"type": "login-success", "token": token, "username": username}))
+                    await websocket.send(json.dumps({
+                        "type": "user-settings",
+                        "settings": users_db[username].get("settings", {})
+                    }))
+                    await notify_users()
+                else:
+                    await websocket.send(json.dumps({"type": "auth-error", "message": "Invalid credentials"}))
+                continue
+
+            if msg_type == "session-login":
+                token = data.get("token")
+                found_user = None
+                for username, tokens in sessions.items():
+                    if token in tokens:
+                        found_user = username
+                        break
+
+                if not found_user:
+                    await websocket.send(json.dumps({
+                        "type": "auth-error",
+                        "message": "Invalid or expired session"
+                    }))
+                    continue
+
+                user_tokens = sessions.get(found_user, {})
+                any_active = any(t in connected_websockets for t in user_tokens)
+
+                if any_active:
+                    try:
+                        await websocket.send(json.dumps({
+                            "type": "duplicate-session"
+                        }))
+                    except:
+                        pass
+                    await websocket.close()
+                    continue
+
+                connected_websockets[token] = websocket
+                if found_user not in verified:
+                    verified.append(found_user)
+                await websocket.send(json.dumps({
+                    "type": "login-success",
+                    "token": token,
+                    "username": found_user
+                }))
+                await websocket.send(json.dumps({
+                    "type": "user-settings",
+                    "settings": users_db.get(found_user, {}).get("settings", {})
+                }))
+                await notify_users()
+                save_sessions()
+                continue
+
+            if msg_type == "logout":
+                nick = users.get(websocket, {}).get("nick")
+                if nick in sessions:
+                    tokens_to_remove = [t for t, ws in connected_websockets.items() if ws == websocket and t in sessions[nick]]
+                    for t in tokens_to_remove:
+                        connected_websockets.pop(t, None)
+                        sessions[nick].pop(t, None)
+                    if not sessions[nick]:
+                        sessions.pop(nick)
+                    if nick in verified:
+                        verified.remove(nick)
+                await websocket.send(json.dumps({"type": "logged-out"}))
+                save_sessions()
+                await notify_users()
+                continue
+
+            if msg_type == "save-favorites":
+                username = data.get("username")
+                favorites = data.get("favorites", [])
+                users_db[username]["favorites"] = favorites
+                save_users(users_db)
+                continue
+
+            if msg_type == "get-favorites":
+                username = data.get("username")
+                favorites = users_db.get(username, {}).get("favorites", [])
+                await websocket.send(json.dumps({
+                    "type": "user-favorites",
+                    "favorites": favorites
+                }))
+                continue
+            
             if msg_type == "join":
                 peer_ip = websocket.remote_address[0]
                 if peer_ip == "localhost":
-                    await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "muted": list(muted)}))
+                    await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "muted": list(muted), "verified": verified}))
                     continue
-                color = random.choice(COLOR_PALETTE)
-                new_nick = get_unique_nick(nick)
+                new_nick = get_unique_nick(nick, data.get("Force", False))
                 is_admin = peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
+                
+                color = random.choice(COLOR_PALETTE)
+                if new_nick in users_db and "settings" in users_db[new_nick] and "color" in users_db[new_nick]["settings"]:
+                    color = users_db[new_nick]["settings"]["color"]
+                else:
+                    color = random.choice(COLOR_PALETTE)
+
                 users[websocket] = {"nick": new_nick, "color": color, "is_admin": is_admin}
 
                 for ws in list(users.keys()):
@@ -123,14 +375,14 @@ async def chat_handler(websocket):
                         clients.discard(ws)
                 await notify_users()
                 await websocket.send(json.dumps({"type": "nick-update", "nick": new_nick}))
-                await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin, "muted": list(muted)}))
+                await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "is_admin": is_admin, "muted": list(muted), "verified": verified}))
                 await websocket.send(json.dumps({
                     "type": "history-available",
                     "available": bool(chat_history)
                 }))
                 if LoggAllowed:
                     timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
                     with open(ip_log_path, "a", encoding="utf-8") as ip_log:
                         ip_log.write(f"!!Joined     | {timestamp} | Nick: {new_nick} \n")
                 continue
@@ -146,7 +398,7 @@ async def chat_handler(websocket):
                                 blacklist.add(ban_ip)
                                 if LoggAllowed:
                                     timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                                    ip_log_path = os.path.join("Logs", "IpLogs", f"{ban_ip}.txt")
+                                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{ban_ip}.txt")
                                     with open(ip_log_path, "a", encoding="utf-8") as ip_log:
                                         ip_log.write(f"!!Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                 await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
@@ -174,9 +426,6 @@ async def chat_handler(websocket):
                         if deleted_files:
                             del_msg = json.dumps({"type": "file-deleted", "files": deleted_files})
                             await asyncio.gather(*[asyncio.create_task(client.send(del_msg)) for client in clients])
-                        if not os.path.exists("uploads/Browser.py"):
-                            destination_file = os.path.join("uploads", "Browser.py")
-                            shutil.copy("Browser.py", destination_file)
                     elif action == "mute":
                         user_to_mute = data.get("user")
                         for ws, info in users.items():
@@ -199,7 +448,7 @@ async def chat_handler(websocket):
                                 if LoggAllowed:
                                     timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
                                     peer_ip = websocket.remote_address[0]
-                                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
                                     with open(ip_log_path, "a", encoding="utf-8") as ip_log:
                                         ip_log.write(f"!!Kicked     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                 await ws.send(json.dumps({"type": "kicked", "reason": "kicked"}))
@@ -219,11 +468,73 @@ async def chat_handler(websocket):
                     }))
                     continue
                 color = data.get("color", "#28a745")
+                if check_For_Barteks_Niggerness(color):
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "This color is too similar to the background. Please choose another."
+                    }))
+                    continue
                 users[websocket]["color"] = color
                 last_color_change[websocket] = now
                 await notify_users()
                 continue
+            
+            if msg_type == "save-settings":
+                username = data.get("username")
+                color = data.get("color")
+                if username in users_db:
+                    users_db[username]["color"] = color
+                    save_users(users_db)
+                    await websocket.send(json.dumps({"type": "settings-saved"}))
+                else:
+                    await websocket.send(json.dumps({"type": "error", "message": "User not found"}))
+                continue
 
+            if msg_type == "change-password":
+                username = data.get("username")
+                old_pw = data.get("old_password")
+                new_pw = data.get("new_password")
+                if username in users_db and users_db[username]["password"] == old_pw:
+                    users_db[username]["password"] = new_pw
+                    save_users(users_db)
+                    await websocket.send(json.dumps({"type": "password-changed"}))
+                else:
+                    await websocket.send(json.dumps({"type": "error", "message": "Invalid credentials"}))
+                continue
+
+            if msg_type == "get-sessions":
+                username = data.get("username")
+                user_sessions = []
+                current_token = None
+                for token, ws in connected_websockets.items():
+                    if ws == websocket:
+                        current_token = token
+                        break
+                for token, info in sessions.get(username, {}).items():
+                    user_sessions.append({
+                        "token": token,
+                        "ip": info.get("ip", "unknown"),
+                        "timestamp": info.get("timestamp", "unknown"),
+                        "current": token == current_token
+                    })
+                await websocket.send(json.dumps({"type": "sessions-list", "sessions": user_sessions}))
+                continue
+
+            if msg_type == "logout-session":
+                username = data.get("username")
+                token = data.get("token")
+                if token in sessions.get(username, {}):
+                    ws = connected_websockets.get(token)
+                    if ws:
+                        await ws.send(json.dumps({"type": "kicked", "reason": "logged-out"}))
+                        await ws.close()
+                    sessions[username].pop(token)
+                    connected_websockets.pop(token, None)
+                    save_sessions()
+                    await websocket.send(json.dumps({"type": "session-logged-out", "token": token}))
+                else:
+                    await websocket.send(json.dumps({"type": "error", "message": "Session not found"}))
+                continue
 
             if msg_type == "message":
                 if users[websocket]["nick"] in muted:
@@ -244,7 +555,7 @@ async def chat_handler(websocket):
                     timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
                     peer_ip = websocket.remote_address[0]
                     logging.info(f"IP: {peer_ip} | Nick: {users[websocket]['nick']} | Message: {text}")
-                    ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
                     with open(ip_log_path, "a", encoding="utf-8") as ip_log:
                         ip_log.write(f"{timestamp} | Nick: {users[websocket]['nick']} | Message: {text}\n")
                 final = json.dumps(msg_obj)
@@ -258,12 +569,28 @@ async def chat_handler(websocket):
         if LoggAllowed:
             timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
             peer_ip = websocket.remote_address[0]
-            logging.info(f"Leaving | IP: {peer_ip} | Nick: {users[websocket]['nick']}")
-            ip_log_path = os.path.join("Logs", "IpLogs", f"{peer_ip}.txt")
+            nick = users.get(websocket, {}).get("nick")
+            logging.info(f"Leaving | IP: {peer_ip} | Nick: {nick}")
+            ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
             with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                ip_log.write(f"!!Leaving       | {timestamp} | Nick: {users[websocket]['nick']}\n")
-        clients.discard(websocket)
+                ip_log.write(f"!!Leaving       | {timestamp} | Nick: {nick}\n")
+
+        nick = users.get(websocket, {}).get("nick")
+        if nick in verified:
+            verified.remove(nick)
         users.pop(websocket, None)
+        clients.discard(websocket)
+        tokens_to_remove = [t for t, ws in connected_websockets.items() if ws == websocket]
+        for t in tokens_to_remove:
+            connected_websockets.pop(t, None)
+            for username, tokens in list(sessions.items()):
+                if t in tokens:
+                    tokens.remove(t)
+                    if not tokens:
+                        sessions.pop(username)
+                    break
+
+        save_sessions()
         await notify_users()
 
 def get_server_ip():
