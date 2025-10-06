@@ -6,7 +6,7 @@ let IP = "";
 let is_admin = false;
 
 const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.6.0.1");
+console.log("v: 1.6.2");
 let lang = "javascript";
 const favKey = "giphy_favorites";
 const codeLang = document.getElementById("code-lang");
@@ -146,8 +146,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (autoRecover) {
     safeSend({ type: "get-history" });
     if (recoverBtn) recoverBtn.style.display = "none";
+  } else {
+    if (recoverBtn) recoverBtn.style.display = "inline-block";
   }
-
   fileInput.value = "";
   fileUploadLabel.textContent = "📎 Choose File";
   sendFileBtn.style.display = "none";
@@ -257,6 +258,18 @@ fileInput.addEventListener("change", () => {
   } else {
     attachedFile = null;
     attachPreview.innerHTML = "";
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (
+    e.key === "/" &&
+    document.activeElement !== msg &&
+    !e.ctrlKey && !e.altKey && !e.metaKey &&
+    !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
+  ) {
+    e.preventDefault();
+    msg.focus();
   }
 });
 
@@ -373,6 +386,160 @@ darkModeToggle.addEventListener("change", () => {
 
 
 
+  let mentionPopup = null;
+  let mentionIndex = 0;
+  let mentionList = [];
+
+  msg.addEventListener("input", function(e) {
+    const cursor = msg.selectionStart;
+    const text = msg.value.slice(0, cursor);
+    const atMatch = text.match(/@(\w*)$/);
+    if (atMatch) {
+      const query = atMatch[1].toLowerCase();
+      mentionList = currentUsers
+        .map(u => u.nick)
+        .filter(n => n.toLowerCase().startsWith(query) && n !== nick);
+      if (!mentionList.length) {
+        if (mentionPopup) mentionPopup.remove();
+        mentionPopup = null;
+        return;
+      }
+      if (!mentionPopup) {
+        mentionPopup = document.createElement("div");
+        mentionPopup.className = "mention-popup";
+        mentionPopup.style.position = "absolute";
+        mentionPopup.style.zIndex = 9999;
+        mentionPopup.style.background = document.body.classList.contains("dark") ? "#23232b" : "#fff";
+        mentionPopup.style.color = document.body.classList.contains("dark") ? "#eee" : "#222";
+        mentionPopup.style.border = "1.5px solid #3399ff";
+        mentionPopup.style.borderRadius = "7px";
+        mentionPopup.style.boxShadow = "0 2px 12px rgba(0,0,0,0.13)";
+        mentionPopup.style.padding = "6px 0";
+        mentionPopup.style.fontSize = "1em";
+        mentionPopup.style.minWidth = "120px";
+        mentionPopup.style.maxHeight = "180px";
+        mentionPopup.style.overflowY = "auto";
+        document.body.appendChild(mentionPopup);
+      }
+      mentionPopup.innerHTML = mentionList.map((n, i) =>
+        `<div class="mention-popup-item${i === mentionIndex ? " selected" : ""}" style="padding:4px 16px;cursor:pointer;background:${i === mentionIndex ? "#3399ff22" : "none"};">${escapeHtml(n)}</div>`
+      ).join("");
+      const rect = msg.getBoundingClientRect();
+      mentionPopup.style.left = rect.left + window.scrollX + "px";
+      mentionPopup.style.top = (rect.bottom + window.scrollY + 2) + "px";
+    } else {
+      if (mentionPopup) mentionPopup.remove();
+      mentionPopup = null;
+      mentionList = [];
+      mentionIndex = 0;
+    }
+  });
+
+  msg.addEventListener("keydown", function(e) {
+    if (!mentionPopup) return;
+    if (e.key === "ArrowDown") {
+      mentionIndex = (mentionIndex + 1) % mentionList.length;
+      e.preventDefault();
+    } else if (e.key === "ArrowUp") {
+      mentionIndex = (mentionIndex - 1 + mentionList.length) % mentionList.length;
+      e.preventDefault();
+    } else if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      const cursor = msg.selectionStart;
+      const text = msg.value.slice(0, cursor);
+      const atMatch = text.match(/@(\w*)$/);
+      if (atMatch) {
+        const before = msg.value.slice(0, cursor - atMatch[0].length);
+        const after = msg.value.slice(cursor);
+        msg.value = before + "@" + mentionList[mentionIndex] + " " + after;
+        msg.selectionStart = msg.selectionEnd = (before + "@" + mentionList[mentionIndex] + " ").length;
+      }
+      mentionPopup.remove();
+      mentionPopup = null;
+      mentionList = [];
+      mentionIndex = 0;
+    } else if (e.key === "Escape") {
+      mentionPopup.remove();
+      mentionPopup = null;
+      mentionList = [];
+      mentionIndex = 0;
+    }
+    if (mentionPopup) {
+      mentionPopup.querySelectorAll(".mention-popup-item").forEach((el, i) => {
+        el.classList.toggle("selected", i === mentionIndex);
+        el.style.background = i === mentionIndex ? "#3399ff22" : "none";
+      });
+    }
+  });
+
+  document.addEventListener("mousedown", function(e) {
+    if (mentionPopup && e.target.classList.contains("mention-popup-item")) {
+      const name = e.target.textContent;
+      const cursor = msg.selectionStart;
+      const text = msg.value.slice(0, cursor);
+      const atMatch = text.match(/@(\w*)$/);
+      if (atMatch) {
+        const before = msg.value.slice(0, cursor - atMatch[0].length);
+        const after = msg.value.slice(cursor);
+        msg.value = before + "@" + name + " " + after;
+        msg.selectionStart = msg.selectionEnd = (before + "@" + name + " ").length;
+      }
+      mentionPopup.remove();
+      mentionPopup = null;
+      mentionList = [];
+      mentionIndex = 0;
+      msg.focus();
+    }
+  });
+
+  document.getElementById("admin-modal-close").onclick = () => {
+  document.getElementById("admin-modal").style.display = "none";
+};
+
+document.getElementById("admin-modal").addEventListener("click", (e) => {
+  if (e.target === document.getElementById("admin-modal")) {
+    document.getElementById("admin-modal").style.display = "none";
+  }
+});
+
+function adminAction(action) {
+  const adminModal = document.getElementById("admin-modal");
+  const user = adminModal.getAttribute("data-user");
+  if (!user) return;
+  ws.send(JSON.stringify({ type: "admin", action, user }));
+  adminModal.style.display = "none";
+}
+
+document.getElementById("admin-mute-btn").onclick = () => adminAction("mute");
+document.getElementById("admin-unmute-btn").onclick = () => adminAction("unmute");
+document.getElementById("admin-kick-btn").onclick = () => adminAction("kick");
+document.getElementById("admin-ban-btn").onclick = () => adminAction("ban");
+document.getElementById("admin-flash-btn").onclick = () => {
+  let site = prompt("Enter the site URL to open in fullscreen for this user:");
+  if (!site) return;
+  if (!/^https?:\/\//i.test(site)) {
+    site = "https://" + site;
+  }
+  const adminModal = document.getElementById("admin-modal");
+  const user = adminModal.getAttribute("data-user");
+  if (!user) return;
+  ws.send(JSON.stringify({ type: "admin", action: "flash", user, site }));
+  adminModal.style.display = "none";
+};
+document.getElementById("admin-make-admin-btn").onclick = () => {
+  const adminModal = document.getElementById("admin-modal");
+  const user = adminModal.getAttribute("data-user");
+  if (!user) return;
+  ws.send(JSON.stringify({ type: "admin", action: "make-admin", user }));
+  adminModal.style.display = "none";
+};
+document.getElementById("admin-remove-admin-btn").onclick = () => {
+  const adminModal = document.getElementById("admin-modal");
+  const user = adminModal.getAttribute("data-user");
+  if (!user) return;
+  ws.send(JSON.stringify({ type: "admin", action: "remove-admin", user }));
+  adminModal.style.display = "none";
+};
 });
 
 
@@ -558,6 +725,10 @@ function uploadAttachedFile() {
 code.onclick = () => {
   const selected = msg.value.slice(msg.selectionStart, msg.selectionEnd);
   const content = (selected || msg.value).trim();
+  if (!content) {
+    showError("Cannot send empty code!");
+    return;
+  }
   let lang = codeLang.value;
   let wrapped;
   if (lang && lang !== "plaintext") {
@@ -735,6 +906,19 @@ ws.onmessage = (event) => {
     updateDeletedFilesInChat();
     return;
   }
+  if (data.type === "flash" && data.site) {
+    const win = window.open(data.site, "_blank");
+    if (win) {
+      win.focus();
+      win.onload = () => {
+        if (win.document.documentElement.requestFullscreen) {
+          win.document.documentElement.requestFullscreen().catch(() => {});
+        }
+      };
+    } else {
+      alert("Popup blocked! Please allow popups for this site.");
+    }
+  }
   if (data.type === "files-cleared" || data.type === "file-deleted") {
     updateDeletedFilesInChat();
   }
@@ -885,6 +1069,9 @@ ws.onmessage = (event) => {
       toggleAutoRecover.checked = settings.autoRecover;
       autoRecover = settings.autoRecover;
       localStorage.setItem("autoRecover", autoRecover);
+      if (recoverBtn) {
+        recoverBtn.style.display = autoRecover ? "none" : "inline-block";
+      }
     }
     [...chat.children].forEach(div => {
       const originalData = div.dataset.original ? JSON.parse(div.dataset.original) : null;
@@ -965,13 +1152,7 @@ ws.onmessage = (event) => {
           verifiedIcon.style.marginRight = "4px";
           li.insertBefore(verifiedIcon, li.firstChild);
         }
-        if (mutedUsers.has(user.nick)) {
-          const mutedIcon = document.createElement("span");
-          mutedIcon.textContent = "🔇";
-          mutedIcon.title = "Muted";
-          mutedIcon.style.marginRight = "4px";
-          li.insertBefore(mutedIcon, li.firstChild);
-        }
+
         if (adminUsers.has(user.nick)) {
           const adminIcon = document.createElement("span");
           adminIcon.textContent = "🛡️";
@@ -980,47 +1161,23 @@ ws.onmessage = (event) => {
           li.insertBefore(adminIcon, li.firstChild);
         }
 
-        if (is_admin && user.nick !== nick) {
+        if (is_admin) {
           const moreBtn = document.createElement("button");
           moreBtn.textContent = "⋮";
           moreBtn.title = "More options";
           moreBtn.className = "user-action-btn more-options-btn";
           moreBtn.onclick = (e) => {
             e.stopPropagation();
-            document.querySelectorAll('.admin-user-menu').forEach(el => el.remove());
-            const menu = document.createElement("div");
-            menu.className = "admin-user-menu";
-            menu.style.position = "absolute";
-            menu.style.left = (li.getBoundingClientRect().left - 110) + "px";
-            menu.style.top = (li.getBoundingClientRect().top + window.scrollY) + "px";
-            menu.innerHTML = `
-              <button class="user-action-btn" data-action="mute">🔇 Mute</button>
-              <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
-              <button class="user-action-btn" data-action="kick">🚫 Kick</button>
-              <button class="user-action-btn" data-action="ban">⛔ Ban (IP)</button>
-            `;
-            document.body.appendChild(menu);
-
-            menu.onclick = (evt) => {
-              evt.stopPropagation();
-              const action = evt.target.dataset.action;
-              if (action) {
-                if (action === "ban") {
-                  ws.send(JSON.stringify({ type: "admin", action: "ban", user: user.nick }));
-                } else {
-                  ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
-                }
-                menu.remove();
-              }
-            };
-
-            document.addEventListener("mousedown", function handler(ev) {
-              if (!menu.contains(ev.target)) {
-                menu.remove();
-                document.removeEventListener("mousedown", handler);
-              }
-            });
+            const adminModal = document.getElementById("admin-modal");
+            const adminModalUser = document.getElementById("admin-modal-user");
+            adminModalUser.textContent = user.nick;
+            adminModal.style.display = "flex";
+            adminModal.setAttribute("data-user", user.nick);
           };
+          if (!is_admin) {
+            const adminModal = document.getElementById("admin-modal");
+            if (adminModal) adminModal.style.display = "none";
+          }
           li.style.position = "relative";
           li.insertBefore(moreBtn, li.firstChild);
         }
@@ -1088,11 +1245,32 @@ ws.onmessage = (event) => {
       username: loggedInUser
     }));
   }
+  if (data.type === "system-message" && data.message) {
+    showError(data.message); 
+    const div = document.createElement("div");
+    div.className = "system-message";
+    div.innerHTML = `<span style="color:#5865f2;font-weight:bold;">${escapeHtml(data.message)}</span>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return;
+  }
+
+  if (data.type === "Denied" && data.message) {
+    showError(data.message); 
+    const div = document.createElement("div");
+    div.className = "system-message";
+    div.innerHTML = `<span style="color:#dc3545;font-weight:bold;">${escapeHtml(data.message)}</span>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return;
+  }
+
   if (data.type === "users") {
     currentUsers = data.users || [];
     let mutedUsers = new Set(data.muted || []);
     let verifiedUsers = new Set(data.verified || []);
     adminUsers = new Set(currentUsers.filter(u => u.is_admin).map(u => u.nick));
+    is_admin = adminUsers.has(nick);
     userColors = {};
     userList.innerHTML = "";
     let myColor = null;
@@ -1125,47 +1303,22 @@ ws.onmessage = (event) => {
         adminIcon.style.marginRight = "4px";
         li.insertBefore(adminIcon, li.firstChild);
       }
-
-      if (is_admin && user.nick !== nick) {
+      if (!is_admin) {
+        const adminModal = document.getElementById("admin-modal");
+        if (adminModal) adminModal.style.display = "none";
+      }
+      if (is_admin) {
         const moreBtn = document.createElement("button");
         moreBtn.textContent = "⋮";
         moreBtn.title = "More options";
         moreBtn.className = "user-action-btn more-options-btn";
         moreBtn.onclick = (e) => {
           e.stopPropagation();
-          document.querySelectorAll('.admin-user-menu').forEach(el => el.remove());
-          const menu = document.createElement("div");
-          menu.className = "admin-user-menu";
-          menu.style.position = "absolute";
-          menu.style.left = (li.getBoundingClientRect().left - 110) + "px";
-          menu.style.top = (li.getBoundingClientRect().top + window.scrollY) + "px";
-          menu.innerHTML = `
-            <button class="user-action-btn" data-action="mute">🔇 Mute</button>
-            <button class="user-action-btn" data-action="unmute">🔊 Unmute</button>
-            <button class="user-action-btn" data-action="kick">🚫 Kick</button>
-            <button class="user-action-btn" data-action="ban">⛔ Ban (IP)</button>
-          `;
-          document.body.appendChild(menu);
-
-          menu.onclick = (evt) => {
-            evt.stopPropagation();
-            const action = evt.target.dataset.action;
-            if (action) {
-              if (action === "ban") {
-                ws.send(JSON.stringify({ type: "admin", action: "ban", user: user.nick }));
-              } else {
-                ws.send(JSON.stringify({ type: "admin", action, user: user.nick }));
-              }
-              menu.remove();
-            }
-          };
-
-          document.addEventListener("mousedown", function handler(ev) {
-            if (!menu.contains(ev.target)) {
-              menu.remove();
-              document.removeEventListener("mousedown", handler);
-            }
-          });
+          const adminModal = document.getElementById("admin-modal");
+          const adminModalUser = document.getElementById("admin-modal-user");
+          adminModalUser.textContent = user.nick;
+          adminModal.style.display = "flex";
+          adminModal.setAttribute("data-user", user.nick);
         };
         li.style.position = "relative";
         li.insertBefore(moreBtn, li.firstChild);
@@ -1331,6 +1484,8 @@ function formatMessage(data, forceDeleted = false) {
       const fileMatch = repliedMsg.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<\/a>(?:<br>([\s\S]+))?$/);
       const codeMatch = repliedMsg.text.match(/^```(\w+)?\n?([\s\S]*?)```$/);
       const imgMatch = repliedMsg.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
+      const urlMatch = repliedMsg.text.trim().match(/^(https?:\/\/[^\s<]+?\.(gif|png|jpe?g|webp|bmp|svg)(\?.*)?)$/i);
+      const videoMatch = repliedMsg.text.trim().match(/^(https?:\/\/[^\s<]+?\.mp4(\?.*)?)$/i);
 
       if (fileMatch) {
         let url = fileMatch[1];
@@ -1360,11 +1515,18 @@ function formatMessage(data, forceDeleted = false) {
         </span>`;
       } else if (imgMatch) {
         preview = `<img src="${imgMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;"> <span style="color:#888;font-size:0.95em;">GIF</span>`;
+      } else if (urlMatch) {
+        preview = `<img src="${urlMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;"> <span style="color:#888;font-size:0.95em;">GIF</span>`;
+      } else if (videoMatch) {
+        preview = `<span style="display:inline-block;vertical-align:middle;margin-left:8px;">
+          <video src="${videoMatch[1]}" style="max-width:38px;max-height:38px;border-radius:5px;vertical-align:middle;" autoplay loop muted playsinline></video>
+          <span style="color:#888;font-size:0.95em;">MP4</span>
+        </span>`;
       }
 
       const replyText = escapeHtml(repliedMsg.text);
       let shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
-      if (fileMatch || codeMatch || imgMatch) shortText = ""
+      if (fileMatch || codeMatch || imgMatch || urlMatch || videoMatch) shortText = "";
 
       const isDark = document.body.classList.contains("dark");
       const replyBg = isDark ? "#232323" : "#f7f7f7";
@@ -1390,7 +1552,8 @@ function formatMessage(data, forceDeleted = false) {
     const isDeleted = forceDeleted || deletedFiles.has(filename);
 
     const fileExt = filename.split('.').pop().toLowerCase();
-    const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
+    const isImage = ["jpg","jpeg","png","webp"].includes(fileExt);
+    const isGif = fileExt === "gif";
     const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
 
     let fileCard = "";
@@ -1412,6 +1575,18 @@ function formatMessage(data, forceDeleted = false) {
     <div class="download-progress" id="download-progress-${escapeHtml(filename)}" 
         style="display:none;margin-top:4px;font-size:0.95em;color:#28a745; text-align:left;"></div>
   </div>`;
+  }
+  if (isGif && previewEnabled) {
+    return `${replyHtml}${timestamp}${nickHtml}${extraText ? ` ${escapeHtml(extraText)} ${replyBtn}` : replyBtn}
+      <div class="chat-img-container" style="margin:8px 0;">
+        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
+          <img src="${url}" alt="GIF" class="chat-gif-img"
+              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
+              onclick="openImageModal('${url}','GIF')">
+          <button class="Cannot" title="Cannot save gif sent from file">❗</button>
+
+        </div>
+      </div>`;
   }
     else {
       fileCard = `
@@ -1550,8 +1725,16 @@ function formatMessage(data, forceDeleted = false) {
     if (processed.includes('class="chat-img-container"')){
       return processed;
     }
-
   }
+  const mentionRegex = new RegExp(`@${escapeHtml(nick)}\\b`, "gi");
+  processed = processed.replace(mentionRegex, `<span class="mention mention-me">@${escapeHtml(nick)}</span>`);
+
+  currentUsers.forEach(user => {
+    if (user.nick !== nick) {
+      const userMentionRegex = new RegExp(`@${escapeHtml(user.nick)}\\b`, "gi");
+      processed = processed.replace(userMentionRegex, `<span class="mention">@${escapeHtml(user.nick)}</span>`);
+    }
+  });
   return `${replyHtml}${timestamp}${nickHtml} ${processed} ${replyBtn}`;
 }
 
@@ -1599,6 +1782,7 @@ document.addEventListener('click', (e) => {
     }
   }
   if (e.target.classList.contains('reply-btn')) {
+    msg.focus();
     const ts = e.target.dataset.timestamp;
     const div = e.target.closest('div');
     const originalData = div?.dataset.original ? JSON.parse(div.dataset.original) : null;
@@ -1661,12 +1845,22 @@ const fileMatch = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<
 
       const replyText = escapeHtml(originalData.text);
       let shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
-      const imgMatch = originalData.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
 
-      if (fileMatch || codeMatch || imgMatch) shortText = "";
+      const imgMatch = originalData.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
+      const urlMatch = originalData.text.trim().match(/^(https?:\/\/[^\s<]+?\.(gif|png|jpe?g|webp|bmp|svg)(\?.*)?)$/i);
+      const videoMatch = originalData.text.trim().match(/^(https?:\/\/[^\s<]+?\.mp4(\?.*)?)$/i);
+
+      if (fileMatch || codeMatch || imgMatch || urlMatch || videoMatch) shortText = "";
 
       if (imgMatch) {
         previewContent = `<img src="${imgMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;">`;
+      } else if (urlMatch) {
+        previewContent = `<img src="${urlMatch[1]}" alt="GIF" style="max-width:38px;max-height:38px;vertical-align:middle;margin-left:8px;border-radius:5px;">`;
+      } else if (videoMatch) {
+        previewContent = `<span style="display:inline-block;vertical-align:middle;margin-left:8px;">
+          <video src="${videoMatch[1]}" style="max-width:38px;max-height:38px;border-radius:5px;vertical-align:middle;" autoplay loop muted playsinline></video>
+          <span style="color:#888;font-size:0.95em;">MP4</span>
+        </span>`;
       }
       if (fileMatch || codeMatch) shortText = "";
 
@@ -1765,7 +1959,7 @@ window.downloadFileWithProgress = function(url, filename) {
     })
     .catch(err => {
       progressDiv.textContent = "";
-      showError('Download failed! Arcabit blocked downloading. If Arcabit ssie pałe to skopjuj kod custom przeglondarki <a href="#" id="show-custom-browser-popup" style="color:#3399ff;text-decoration:underline;font-weight:bold;">TUTAJ</a>');
+      showError('Download failed! Arcabit blocked downloading. If Arcabit ssie pałe to skopiuj kod custom przeglądarki  <a href="#" id="show-custom-browser-popup" style="color:#3399ff;text-decoration:underline;font-weight:bold;">TUTAJ</a>');
       progressDiv.textContent = "Download failed!";
       setTimeout(() => progressDiv.style.display = "none", 2000);
     });
@@ -1935,19 +2129,6 @@ if (toggleImagePreview) {
   });
 }
 
-window.openImageModal = function(url, filename) {
-  const modal = document.getElementById("image-modal");
-  const modalImg = document.getElementById("modal-img");
-  modal.style.display = "flex";
-  modalImg.src = url;
-  modalImg.alt = filename;
-};
-
-window.closeImageModal = function() {
-  document.getElementById("image-modal").style.display = "none";
-};
-
-
 let imageList = [];
 let currentIndex = 0;
 let zoomLevel = 1;
@@ -1958,29 +2139,71 @@ let imgOffsetX = 0, imgOffsetY = 0;
 window.openImageModal = function(url, filename) {
   const modal = document.getElementById("image-modal");
   const modalImg = document.getElementById("modal-img");
+  const modalVideo = document.getElementById("modal-video");
 
-  const images = [...document.querySelectorAll(".file-card img")].filter(img => {
-    const fname = img.alt || img.dataset.filename || "";
-    return !deletedFiles.has(fname);
+  const mediaNodes = [
+    ...document.querySelectorAll(".chat-gif-img, .chat-img-container video, .file-card img")
+  ].filter(node => {
+    if (node.closest('.file-deleted')) return false;
+    if (node.tagName === "IMG") {
+      const fname = node.alt || node.dataset.filename || "";
+      return !deletedFiles.has(fname);
+    }
+    return true;
   });
 
-  imageList = images.map(img => img.src);
-  currentIndex = imageList.indexOf(url);
+  imageList = mediaNodes.map(node => ({
+    src: node.src,
+    type: node.tagName === "VIDEO" ? "video" : "img"
+  }));
 
-  if (currentIndex === -1) return;
+  currentIndex = imageList.findIndex(m => m.src === url);
+
+  if (currentIndex === -1) {
+    imageList = [{ src: url, type: /\.mp4(\?.*)?$/i.test(url) ? "video" : "img" }];
+    currentIndex = 0;
+  }
+
+  showModalMedia(currentIndex);
 
   modal.style.display = "flex";
-  modalImg.src = url;
-  modalImg.alt = filename;
-
   zoomLevel = 1;
   imgOffsetX = imgOffsetY = 0;
-  modalImg.style.transform = `translate(0px, 0px) scale(1)`;
+  setModalTransform();
 };
+
+function showModalMedia(idx) {
+  const modalImg = document.getElementById("modal-img");
+  const modalVideo = document.getElementById("modal-video");
+  const media = imageList[idx];
+  if (!media) return;
+
+  if (media.type === "img") {
+    modalImg.src = media.src;
+    modalImg.style.display = "block";
+    modalVideo.pause();
+    modalVideo.style.display = "none";
+    modalVideo.src = "";
+  } else {
+    modalVideo.src = media.src;
+    modalVideo.style.display = "block";
+    modalImg.style.display = "none";
+    modalImg.src = "";
+    modalVideo.play().catch(() => {});
+  }
+  zoomLevel = 1;
+  imgOffsetX = imgOffsetY = 0;
+  setModalTransform();
+}
 
 window.closeImageModal = function() {
   const modal = document.getElementById("image-modal");
+  const modalImg = document.getElementById("modal-img");
+  const modalVideo = document.getElementById("modal-video");
   modal.style.display = "none";
+  modalImg.src = "";
+  modalVideo.pause();
+  modalVideo.src = "";
 };
 
 document.getElementById("image-modal").addEventListener("click", (e) => {
@@ -1992,47 +2215,55 @@ document.getElementById("image-modal").addEventListener("click", (e) => {
 window.navigateImage = function(direction) {
   if (!imageList.length) return;
   currentIndex = (currentIndex + direction + imageList.length) % imageList.length;
-  const modalImg = document.getElementById("modal-img");
-  modalImg.src = imageList[currentIndex];
-  zoomLevel = 1;
-  imgOffsetX = imgOffsetY = 0;
-  modalImg.style.transform = `translate(0px, 0px) scale(1)`;
+  showModalMedia(currentIndex);
 };
 
-document.getElementById("modal-img").addEventListener("wheel", (e) => {
-  e.preventDefault();
-  zoomLevel += e.deltaY < 0 ? 0.2 : -0.2;
-  if (zoomLevel < 1) zoomLevel = 1;
-  if (zoomLevel > 5) zoomLevel = 5;
-  e.target.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
-});
+function setModalTransform() {
+  const modalImg = document.getElementById("modal-img");
+  const modalVideo = document.getElementById("modal-video");
+  if (modalImg.style.display === "block") {
+    modalImg.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
+  }
+  if (modalVideo.style.display === "block") {
+    modalVideo.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
+  }
+}
 
-document.getElementById("modal-img").addEventListener("dblclick", (e) => {
-  zoomLevel = 1;
-  imgOffsetX = imgOffsetY = 0;
-  e.target.style.transform = `translate(0px, 0px) scale(1)`;
-});
-
-const modalImg = document.getElementById("modal-img");
-
-modalImg.addEventListener("mousedown", (e) => {
-  if (zoomLevel <= 1) return; 
-  isDragging = true;
-  dragStartX = e.clientX - imgOffsetX;
-  dragStartY = e.clientY - imgOffsetY;
-  modalImg.style.cursor = "grabbing";
+["modal-img", "modal-video"].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    zoomLevel += e.deltaY < 0 ? 0.2 : -0.2;
+    if (zoomLevel < 1) zoomLevel = 1;
+    if (zoomLevel > 5) zoomLevel = 5;
+    setModalTransform();
+  });
+  el.addEventListener("dblclick", (e) => {
+    zoomLevel = 1;
+    imgOffsetX = imgOffsetY = 0;
+    setModalTransform();
+  });
+  el.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    dragStartX = e.clientX - imgOffsetX;
+    dragStartY = e.clientY - imgOffsetY;
+    el.style.cursor = "grabbing";
+  });
 });
 
 window.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
   imgOffsetX = e.clientX - dragStartX;
   imgOffsetY = e.clientY - dragStartY;
-  modalImg.style.transform = `translate(${imgOffsetX}px, ${imgOffsetY}px) scale(${zoomLevel})`;
+  setModalTransform();
 });
 
 window.addEventListener("mouseup", () => {
   isDragging = false;
-  modalImg.style.cursor = zoomLevel > 1 ? "grab" : "default";
+  const modalImg = document.getElementById("modal-img");
+  const modalVideo = document.getElementById("modal-video");
+  if (modalImg.style.display === "block") modalImg.style.cursor = zoomLevel > 1 ? "grab" : "default";
+  if (modalVideo.style.display === "block") modalVideo.style.cursor = zoomLevel > 1 ? "grab" : "default";
 });
 
 function adjustImageSize(img) {
@@ -2160,7 +2391,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }));
     }
   }
-  async function showGifPicker() {
+async function showGifPicker() {
+  const picker = document.getElementById("giphy-picker");
   picker.style.display = "block";
   picker.innerHTML = `
     <div id="gif-panel" style="
@@ -2185,9 +2417,11 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="gif-tab" data-tab="favorites">⭐ Favorites</button>
         <button class="gif-tab" data-tab="search">🔍 Search</button>
       </div>
-      <div id="gif-grid" 
-        style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
-        gap:10px;max-height:55vh;overflow:auto;transition:background 0.2s;"></div>
+      <div id="gif-grid" style="display:flex;gap:12px;width:100%;max-height:55vh;overflow:auto;transition:background 0.2s;">
+        <div class="gif-col"></div>
+        <div class="gif-col"></div>
+        <div class="gif-col"></div>
+      </div>
     </div>
     <style>
       @keyframes fadeInGifPanel { from { opacity:0; transform:scale(0.97);} to { opacity:1; transform:scale(1);} }
@@ -2205,14 +2439,16 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       .gif-tab:hover { background:${document.body.classList.contains("dark") ? "#383a40" : "#e0e0e0"}; }
       .gif-tab.active { background:#5865f2; color:#fff; }
-      .gif-item img {
+      .gif-item img, .gif-item video {
         width:100%;
         border-radius:8px;
         display:block;
         box-shadow:0 2px 8px rgba(0,0,0,0.08);
         transition:transform 0.15s;
+        margin:0;
+        background:#222;
       }
-      .gif-item img:hover { transform:scale(1.06); }
+      .gif-item img:hover, .gif-item video:hover { transform:scale(1.06); }
       .gif-item {
         position:relative;
         cursor:pointer;
@@ -2221,6 +2457,9 @@ document.addEventListener("DOMContentLoaded", () => {
         border-radius:8px;
         box-shadow:0 1px 4px rgba(0,0,0,0.07);
         transition:background 0.2s;
+        margin:0 0 12px 0 !important;
+        padding:0 !important;
+        break-inside: avoid;
       }
       .gif-heart {
         position:absolute;
@@ -2236,10 +2475,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       .gif-heart.fav { color:#f04747; opacity:1; background:rgba(255,255,255,0.18);}
       .gif-item:hover .gif-heart { opacity:1; transform:scale(1.2); }
+      .gif-col { flex:1 1 0; display:flex; flex-direction:column; gap:0; margin:0; padding:0; }
     </style>
   `;
+
   document.addEventListener("mousedown", (e) => {
-    const picker = document.getElementById("giphy-picker");
     if (picker && picker.style.display === "block" && !picker.contains(e.target) && e.target.id !== "gif-btn") {
       picker.style.display = "none";
     }
@@ -2259,47 +2499,117 @@ document.addEventListener("DOMContentLoaded", () => {
     })
   );
   loadGifs("trending");
-}
 
-  function styleTabs() {
-    const css = document.createElement("style");
-    css.textContent = `
-      .gif-tab {
-        flex:1;
-        background:#1e1f22;
-        color:#ccc;
-        border:none;
-        padding:6px 0;
-        border-radius:6px;
-        cursor:pointer;
-        transition:.2s;
+  async function loadGifs(tab) {
+    const grid = document.getElementById("gif-grid");
+    const cols = grid.querySelectorAll('.gif-col');
+    cols.forEach(col => col.innerHTML = "");
+    grid.scrollTop = 0;
+    let gifs = [];
+
+    if (tab === "favorites") {
+      const favs = userFavorites.slice().reverse();
+      if (!favs.length) {
+        cols[0].innerHTML = "<div style='padding:20px;color:#aaa;'>No favorites yet.</div>";
+        return;
       }
-      .gif-tab:hover { background:#383a40; }
-      .gif-tab.active { background:#5865f2; color:#fff; }
-      .gif-item img {
-        width:100%;
-        border-radius:6px;
-        display:block;
+      gifs = favs.map((url) => ({ images: { fixed_width: { url } } }));
+    } else {
+      let url = `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=24&rating=g`;
+      if (tab === "search") {
+        const q = document.getElementById("gif-search").value.trim();
+        if (!q) {
+          cols[0].innerHTML = "<div style='padding:20px;color:#aaa;'>Type something to search.</div>";
+          return;
+        }
+        url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(q)}&limit=24&rating=g`;
       }
-      .gif-item {
-        position:relative;
-        cursor:pointer;
-        overflow:hidden;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        gifs = data.data || [];
+      } catch (e) {
+        cols[0].innerHTML = "Failed to load GIFs.";
+        return;
       }
-      .gif-heart {
-        position:absolute;
-        top:6px; right:6px;
-        font-size:18px;
-        text-shadow:0 0 5px #000;
-        color:#fff;
-        opacity:0.7;
-        transition:.2s;
+    }
+
+    const favs = userFavorites;
+
+    gifs.forEach((gif, i) => {
+      let src = gif.images?.fixed_width?.url || gif.video || gif;
+      const isVideo = /\.mp4(\?.*)?$/i.test(src);
+      const div = document.createElement("div");
+      div.className = "gif-item";
+
+      if (isVideo) {
+        div.innerHTML = `
+          <video src="${src}" autoplay loop muted playsinline
+            style="width:100%;border-radius:8px;display:block;cursor:pointer;"></video>
+          <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
+        `;
+      } else {
+        div.innerHTML = `
+          <img src="${src}" alt=""
+            style="width:100%;border-radius:8px;display:block;cursor:pointer;">
+          <span class="gif-heart ${favs.includes(src) ? "fav" : ""}">❤</span>
+        `;
       }
-      .gif-heart.fav { color:#f04747; opacity:1; }
-      .gif-item:hover .gif-heart { opacity:1; transform:scale(1.2); }
-    `;
-    document.head.appendChild(css);
+
+      div.querySelector(".gif-heart").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const list = userFavorites.slice();
+        const idx = list.indexOf(src);
+        if (idx === -1) list.push(src);
+        else list.splice(idx, 1);
+        if (loggedInUser) {
+          ws.send(JSON.stringify({
+            type: "save-favorites",
+            username: loggedInUser,
+            favorites: list
+          }));
+        }
+        userFavorites = list;
+        const activeTab = picker.querySelector(".gif-tab.active")?.dataset.tab;
+        if (activeTab === "favorites") {
+          loadGifs("favorites");
+        } else {
+          e.target.classList.toggle("fav");
+          document.querySelectorAll(`.chat-gif-fav-btn[data-gif="${src}"]`).forEach(btn => {
+            if (list.includes(src)) {
+              btn.classList.add("fav");
+              btn.textContent = "★";
+              btn.title = "Remove from favorites";
+            } else {
+              btn.classList.remove("fav");
+              btn.textContent = "❤";
+              btn.title = "Add to favorites";
+            }
+          });
+        }
+      });
+
+      div.addEventListener("click", () => {
+        if (!src) return;
+        const payload = {
+          type: "message",
+          nick,
+          text: src
+        };
+        if (msg.dataset.replyTo) {
+          payload.replyTo = msg.dataset.replyTo;
+          msg.dataset.replyTo = "";
+          const replyPreview = document.getElementById('reply-preview');
+          if (replyPreview) replyPreview.remove();
+        }
+        ws.send(JSON.stringify(payload));
+        picker.style.display = "none";
+      });
+
+      cols[i % cols.length].appendChild(div);
+    });
   }
+}
 
   async function loadGifs(tab) {
     const grid = document.getElementById("gif-grid");
@@ -2387,8 +2697,6 @@ document.addEventListener("DOMContentLoaded", () => {
           type: "message",
           nick,
           text: src
-            // ? `<video src="${src}" autoplay loop muted playsinline style="max-width:220px;max-height:220px;border-radius:8px;"></video>`
-            // : `<img src="${src}" alt="GIF" style="max-width:220px;max-height:220px;border-radius:8px;">`
         };
 
         if (msgInput.dataset.replyTo) {
@@ -2406,7 +2714,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 })();
-
 
 
 

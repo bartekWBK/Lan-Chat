@@ -12,6 +12,25 @@
   <link rel="stylesheet" href="prism.css" />
   <script src="prism.js"></script>
 </head>
+
+<div id="admin-modal" class="admin-modal" style="display:none;">
+  <div class="admin-modal-content">
+    <span class="admin-modal-close" id="admin-modal-close">&times;</span>
+    <h2 id="admin-modal-title">User Actions</h2>
+    <div id="admin-modal-user" style="font-size:1.2em;margin-bottom:10px;"></div>
+    <div class="admin-modal-actions">
+      <button id="admin-mute-btn">🔇 Mute</button>
+      <button id="admin-unmute-btn">🔊 Unmute</button>
+      <button id="admin-kick-btn">🚫 Kick</button>
+      <button id="admin-ban-btn">⛔ Ban (IP)</button>
+      <button id="admin-make-admin-btn">🛡️ Make Admin</button>
+      <button id="admin-remove-admin-btn">❌ Remove Admin</button>
+      <button id="admin-flash-btn">⚡ Flash </button>
+      <button id="admin-message-btn">💬 Private Message(N)</button>
+    </div>
+  </div>
+</div>
+
 <body>
 <div id="giphy-picker" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;"></div>
 <div id="account-modal" class="settings-modal" style="display:none;">
@@ -176,7 +195,8 @@
 <div id="image-modal" class="image-modal">
   <span class="close-modal" onclick="closeImageModal()">✖</span>
   <span class="prev-img" onclick="navigateImage(-1)">⟨</span>
-  <img id="modal-img" src="" alt="Preview">
+  <img id="modal-img" src="" alt="Preview" style="display:none;">
+  <video id="modal-video" style="display:none;max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 4px 32px #000a;cursor:grab;background:#222;" autoplay loop muted controls playsinline></video>
   <span class="next-img" onclick="navigateImage(1)">⟩</span>
 </div>
 
@@ -196,23 +216,23 @@
   font-size:0.9em;
   z-index:999999;
 "></div>
-  <div id="custom-browser-popup" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
-    <div style="background:#fff;color:#222;max-width:600px;width:95vw;padding:28px 18px 18px 18px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);position:relative;">
-      <button id="close-custom-browser-popup" style="position:absolute;top:10px;right:16px;font-size:1.5em;background:none;border:none;color:#888;cursor:pointer;">✖</button>
-      <h2 style="margin-top:0;">Custom Browser App</h2>
-      <p>Copy and use this code to run the custom browser app:</p>
-      <textarea readonly style="width:100%;height:180px;resize:vertical;font-family:monospace;font-size:1em;padding:8px;border-radius:6px;border:1px solid #ccc;background:#f7f7f7;box-sizing:border-box;" id="custom-browser-code">
+<div id="custom-browser-popup" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
+  <div style="background:#fff;color:#222;max-width:600px;width:95vw;padding:28px 18px 18px 18px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);position:relative;">
+    <button id="close-custom-browser-popup" style="position:absolute;top:10px;right:16px;font-size:1.5em;background:none;border:none;color:#888;cursor:pointer;">✖</button>
+    <h2 style="margin-top:0;">Custom Browser App</h2>
+    <p>Copy and use this code to run the custom browser app:</p>
+    <textarea readonly style="width:100%;height:180px;resize:vertical;font-family:monospace;font-size:1em;padding:8px;border-radius:6px;border:1px solid #ccc;background:#f7f7f7;box-sizing:border-box;" id="custom-browser-code">
 import sys
 import subprocess
 import importlib
 
 required = ["PyQt5", "PyQtWebEngine"]
-print("downloading to ścierwo jebane przez cwelów z arcabit")
+print("Downloading required modules...")
 for lib in required:
     try:
         importlib.import_module(lib)
     except ImportError:
-        print(f"{lib} not found. Installing (skill issue)...")
+        print(f"{lib} not found. Installing...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
 
 
@@ -229,7 +249,7 @@ BOOKMARKS_FILE = "bookmarks.json"
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Jakiś Cwelowski ShitBrowser z chata - jak chcesz pobrać z listy plik to middle click")
+        self.setWindowTitle("Simple Custom Browser - middle-click to download from list")
         self.setGeometry(100, 100, 1200, 800)
 
         self.web_view = QWebEngineView()
@@ -332,18 +352,13 @@ if __name__ == "__main__":
     browser = Browser()
     browser.show()
     sys.exit(app.exec_())
-      </textarea>
-      <button id="copy-custom-browser-code" style="margin-top:10px;padding:7px 18px;font-size:1em;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">Copy code</button>
-    </div>
+    </textarea>
+    <button id="copy-custom-browser-code" style="margin-top:10px;padding:7px 18px;font-size:1em;background:#3399ff;color:#fff;border:none;border-radius:6px;cursor:pointer;">Copy code</button>
   </div>
+</div>
 
   <script id="chat-js" src="chat.js"></script>
 
 </body>
 
 </html>
-
-<!-- 
--- add auto recovery of chat 
--- change settings looks
--->

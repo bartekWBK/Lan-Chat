@@ -354,8 +354,14 @@ async def chat_handler(websocket):
                     await websocket.send(json.dumps({"type": "IP", "ip": SERVER_IP, "muted": list(muted), "verified": verified}))
                     continue
                 new_nick = get_unique_nick(nick, data.get("Force", False))
-                is_admin = peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
-                
+                def is_logged_in(nick):
+                    return nick in sessions and is_user_online(nick)
+
+                is_admin = (
+                    peer_ip == SERVER_IP
+                    or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost"))
+                    or (new_nick in users_db and users_db[new_nick].get("is_admin") and is_logged_in(new_nick))
+                )                
                 color = random.choice(COLOR_PALETTE)
                 if new_nick in users_db and "settings" in users_db[new_nick] and "color" in users_db[new_nick]["settings"]:
                     color = users_db[new_nick]["settings"]["color"]
@@ -388,30 +394,80 @@ async def chat_handler(websocket):
                 continue
             if msg_type == "admin":
                 peer_ip = websocket.remote_address[0]
-                if peer_ip == SERVER_IP or (SERVER_IP == "127.0.0.1" and peer_ip in ("127.0.0.1", "localhost")):
+                user_info = users.get(websocket)
+                if user_info and user_info.get("is_admin"):
                     action = data.get("action")
                     if action == "ban":
                         user_to_ban = data.get("user")
                         for ws, info in list(users.items()):
                             if info["nick"] == user_to_ban:
                                 ban_ip = ws.remote_address[0]
-                                blacklist.add(ban_ip)
-                                if LoggAllowed:
-                                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{ban_ip}.txt")
-                                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                                        ip_log.write(f"!!Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
-                                await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
-                                await ws.close()
-                                users.pop(ws, None)
-                                clients.discard(ws)
-                                break
+                                if ban_ip == SERVER_IP:
+                                    await websocket.send(json.dumps({"type": "Denied", "message": "You cannot ban this user."}))
+                                    await notify_users()
+                                else:
+                                    blacklist.add(ban_ip)
+                                    if LoggAllowed:
+                                        timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
+                                        ip_log_path = os.path.join("../Logs", "IpLogs", f"{ban_ip}.txt")
+                                        with open(ip_log_path, "a", encoding="utf-8") as ip_log:
+                                            ip_log.write(f"!!Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
+                                    await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
+                                    await ws.close()
+                                    users.pop(ws, None)
+                                    clients.discard(ws)
+                                    break
                         await notify_users()
                     elif action == "unban":
                         ip_to_unban = data.get("ip")
                         blacklist.discard(ip_to_unban)
                     elif action == "wipe-blacklist":
                         blacklist.clear()
+                    elif action == "make-admin":
+                        if peer_ip != SERVER_IP:
+                            await websocket.send(json.dumps({"type": "Denied", "message": "You cannot make users admins."}))
+                            await notify_users()
+                        else:
+                            user_to_admin = data.get("user")
+                            if user_to_admin not in sessions or not is_user_online(user_to_admin):
+                                await websocket.send(json.dumps({"type": "Denied", "message": "User must be logged in to be made admin."}))
+                            else:
+                                user_to_admin = data.get("user")
+                                for ws, info in users.items():
+                                    if info["nick"] == user_to_admin:
+                                        if user_to_admin in users_db:
+                                            info["is_admin"] = True
+                                            users_db[user_to_admin]["is_admin"] = True
+                                            save_users(users_db)
+                                            await ws.send(json.dumps({"type": "system-message", "message": "You are now an admin."}))
+                                            await notify_users()
+                                        break
+
+                    elif action == "remove-admin":
+                        if peer_ip != SERVER_IP:
+                            await websocket.send(json.dumps({"type": "Denied", "message": "You cannot make users admins."}))
+                            await notify_users()
+                        else:
+                            user_to_admin = data.get("user")
+                            if user_to_admin not in sessions or not is_user_online(user_to_admin):
+                                await websocket.send(json.dumps({"type": "Denied", "message": "User must be logged in to be made admin."}))
+                            else:
+                                user_to_admin = data.get("user")
+                                for ws, info in users.items():
+                                    if info["nick"] == user_to_admin:
+                                        if user_to_admin in users_db:
+                                            info["is_admin"] = False
+                                            users_db[user_to_admin]["is_admin"] = False
+                                            save_users(users_db)
+                                            await ws.send(json.dumps({"type": "system-message", "message": "Your admin rights have been removed."}))
+                                            await notify_users()
+                                        break
+                    elif action == "flash":
+                        user_to_flash = data.get("user")
+                        site = data.get("site")
+                        for ws, info in users.items():
+                            if info["nick"] == user_to_flash:
+                                await ws.send(json.dumps({"type": "flash", "site": site}))
                     if action == "clear-files":
                         deleted_files = []
                         for fname in os.listdir("uploads"):
@@ -578,6 +634,8 @@ async def chat_handler(websocket):
         nick = users.get(websocket, {}).get("nick")
         if nick in verified:
             verified.remove(nick)
+        if websocket in users:
+            users[websocket]["is_admin"] = False
         users.pop(websocket, None)
         clients.discard(websocket)
         tokens_to_remove = [t for t, ws in connected_websockets.items() if ws == websocket]
