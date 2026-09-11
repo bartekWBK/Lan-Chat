@@ -8,30 +8,56 @@ from datetime import datetime, timezone
 import os
 import uuid
 import random
+import base64
+import hashlib
+import hmac
+import secrets
 from email.parser import BytesParser
 from email.policy import default as default_policy
 from urllib.parse import unquote
 import time
 import logging
+import mimetypes
+
 LoggAllowed = True
-SESSION_FILE = "../UserData/sessions.json"
-USER_DB_FILE = "../UserData/users.json"
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+USER_DATA_DIR = os.path.join(SCRIPT_DIR, "..", "UserData")
+LOGS_DIR = os.path.join(SCRIPT_DIR, "..", "Logs")
+UPLOADS_DIR = os.path.join(SCRIPT_DIR, "uploads")
+SESSION_FILE = os.path.join(USER_DATA_DIR, "sessions.json")
+USER_DB_FILE = os.path.join(USER_DATA_DIR, "users.json")
+PASSWORD_HASH_ITERATIONS = 600_000
+UPLOAD_COOLDOWN_SECONDS = 2
+
 sessions = {}
 connected_websockets = {}
 verified = []
-os.makedirs("../UserData", exist_ok=True)
+upload_last_request = {}
+upload_rate_lock = threading.Lock()
+
+os.makedirs(USER_DATA_DIR, exist_ok=True)
 if LoggAllowed:
-    os.makedirs("../Logs", exist_ok=True)
-    os.makedirs("../Logs/AllLogs", exist_ok=True)
-    os.makedirs("../Logs/IpLogs", exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
 
 if LoggAllowed:
     logging.basicConfig(
-        filename="../Logs/AllLogs/" + datetime.now().strftime("%Y-%m-%d   %H_%M    %S") + " (y-m-d h_m s) chat_log.txt",
+        filename=os.path.join(LOGS_DIR, datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + "_session.log"),
         level=logging.INFO,
         format="%(asctime)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S"
     )
+
+def log_event(event, nick, is_verified, extra=""):
+    """Write a single, uniformly-formatted join/leave log line."""
+    if not LoggAllowed:
+        return
+    status = "verified" if is_verified else "guest"
+    line = f"{event:<6} | nick={nick or 'Unknown':<20} | {status:<9}"
+    if extra:
+        line += f" | {extra}"
+    logging.info(line)
+
 if os.path.exists(SESSION_FILE):
     with open(SESSION_FILE, "r", encoding="utf-8") as f:
         sessions = json.load(f)
@@ -39,6 +65,32 @@ if os.path.exists(SESSION_FILE):
 def save_sessions():
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
         json.dump(sessions, f)
+
+def hash_password(password):
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS
+    )
+    return {
+        "algorithm": "pbkdf2_sha256",
+        "iterations": PASSWORD_HASH_ITERATIONS,
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "hash": base64.b64encode(digest).decode("ascii")
+    }
+
+def verify_password(password, stored_password):
+    if not isinstance(stored_password, dict):
+        return False
+    try:
+        salt = base64.b64decode(stored_password["salt"])
+        expected = base64.b64decode(stored_password["hash"])
+        digest = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt,
+            int(stored_password["iterations"])
+        )
+        return hmac.compare_digest(digest, expected)
+    except (KeyError, TypeError, ValueError):
+        return False
 
 def load_sessions():
     global sessions
@@ -48,10 +100,19 @@ def load_sessions():
     else:
         sessions = {}
 load_sessions()
+
 def load_users():
     if os.path.exists(USER_DB_FILE):
         with open(USER_DB_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            users = json.load(f)
+        migrated = False
+        for user in users.values():
+            if isinstance(user.get("password"), str):
+                user["password"] = hash_password(user["password"])
+                migrated = True
+        if migrated:
+            save_users(users)
+        return users
     return {}
 
 def save_users(users):
@@ -71,7 +132,7 @@ clients = set()
 users = dict()
 muted = set()
 blacklist = set()
-os.makedirs("uploads", exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 last_color_change = {}
 COLOR_COOLDOWN = 5
 
@@ -83,7 +144,7 @@ COLOR_PALETTE = [
     "#8a2be2", "#ff4500", "#228b22", "#00bfff", "#ff69b4"
 ]
 
-def check_For_Barteks_Niggerness(hex_color, bg_light="#f2f2f2", bg_dark="#232323"):
+def is_color_too_close_to_background(hex_color, bg_light="#f2f2f2", bg_dark="#232323"):
     def hex_to_rgb(h):
         h = h.lstrip("#")
         return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
@@ -148,11 +209,6 @@ def get_unique_nick(base_nick, force=False):
 async def chat_handler(websocket):
     peer_ip = websocket.remote_address[0]
     if peer_ip in blacklist:
-        if LoggAllowed:
-            timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-            ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
-            with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                ip_log.write(f"!!Tried To Join But Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
         await websocket.send(json.dumps({"type": "kicked", "reason": "banned"}))
         await websocket.close()
         return
@@ -198,7 +254,7 @@ async def chat_handler(websocket):
                 if username in users_db:
                     await websocket.send(json.dumps({"type": "auth-error", "message": "Username already exists"}))
                 else:
-                    users_db[username] = {"password": password}
+                    users_db[username] = {"password": hash_password(password)}
                     save_users(users_db)
                     token = str(uuid.uuid4())
                     if username not in sessions:
@@ -220,9 +276,9 @@ async def chat_handler(websocket):
                 continue
             if msg_type == "save-settings":
                 username = data.get("username")
-                settings = data.get("settings")
+                settings = data.get("settings") or {}
                 if username in users_db:
-                    users_db[username]["settings"] = settings 
+                    users_db[username].setdefault("settings", {}).update(settings or {})
                     if "color" in settings:
                         users_db[username]["color"] = settings["color"]  
                     save_users(users_db)
@@ -251,7 +307,7 @@ async def chat_handler(websocket):
                 if is_user_online(username):
                     await websocket.send(json.dumps({"type": "auth-error", "message": "This account is already logged in elsewhere."}))
                     continue
-                if username in users_db and users_db[username]["password"] == password:
+                if username in users_db and verify_password(password, users_db[username].get("password")):
                     token = str(uuid.uuid4())
                     if username not in sessions:
                         sessions[username] = {}
@@ -386,11 +442,7 @@ async def chat_handler(websocket):
                     "type": "history-available",
                     "available": bool(chat_history)
                 }))
-                if LoggAllowed:
-                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
-                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                        ip_log.write(f"!!Joined     | {timestamp} | Nick: {new_nick} \n")
+                log_event("JOIN", new_nick, new_nick in verified)
                 continue
             if msg_type == "admin":
                 peer_ip = websocket.remote_address[0]
@@ -407,11 +459,6 @@ async def chat_handler(websocket):
                                     await notify_users()
                                 else:
                                     blacklist.add(ban_ip)
-                                    if LoggAllowed:
-                                        timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                                        ip_log_path = os.path.join("../Logs", "IpLogs", f"{ban_ip}.txt")
-                                        with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                                            ip_log.write(f"!!Banned     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                     await ws.send(json.dumps({"type": "kicked", "reason": "banned"}))
                                     await ws.close()
                                     users.pop(ws, None)
@@ -470,9 +517,9 @@ async def chat_handler(websocket):
                                 await ws.send(json.dumps({"type": "flash", "site": site}))
                     if action == "clear-files":
                         deleted_files = []
-                        for fname in os.listdir("uploads"):
+                        for fname in os.listdir(UPLOADS_DIR):
                             try:
-                                os.remove(os.path.join("uploads", fname))
+                                os.remove(os.path.join(UPLOADS_DIR, fname))
                                 deleted_files.append(fname)
                             except Exception:
                                 pass
@@ -501,12 +548,6 @@ async def chat_handler(websocket):
                         user_to_kick = data.get("user")
                         for ws, info in list(users.items()):
                             if info["nick"] == user_to_kick:
-                                if LoggAllowed:
-                                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                                    peer_ip = websocket.remote_address[0]
-                                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
-                                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                                        ip_log.write(f"!!Kicked     | {timestamp} | Nick: {users[websocket]['nick']} \n")
                                 await ws.send(json.dumps({"type": "kicked", "reason": "kicked"}))
                                 await ws.close()
                                 break
@@ -524,7 +565,7 @@ async def chat_handler(websocket):
                     }))
                     continue
                 color = data.get("color", "#28a745")
-                if check_For_Barteks_Niggerness(color):
+                if is_color_too_close_to_background(color):
                     await websocket.send(json.dumps({
                         "type": "error",
                         "message": "This color is too similar to the background. Please choose another."
@@ -550,8 +591,8 @@ async def chat_handler(websocket):
                 username = data.get("username")
                 old_pw = data.get("old_password")
                 new_pw = data.get("new_password")
-                if username in users_db and users_db[username]["password"] == old_pw:
-                    users_db[username]["password"] = new_pw
+                if username in users_db and verify_password(old_pw, users_db[username].get("password")):
+                    users_db[username]["password"] = hash_password(new_pw)
                     save_users(users_db)
                     await websocket.send(json.dumps({"type": "password-changed"}))
                 else:
@@ -595,6 +636,8 @@ async def chat_handler(websocket):
             if msg_type == "message":
                 if users[websocket]["nick"] in muted:
                     continue
+                ciphertext = data.get("ciphertext")
+                iv = data.get("iv")
                 text = data.get("text", "")
                 timestamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
                 reply_to = data.get("replyTo")
@@ -602,18 +645,21 @@ async def chat_handler(websocket):
                     "type": "message",
                     "nick": users[websocket]["nick"],
                     "color": users[websocket]["color"],
-                    "text": text,
                     "timestamp": timestamp
                 }
+                if ciphertext and iv:
+                    msg_obj.update({
+                        "ciphertext": ciphertext,
+                        "iv": iv,
+                        "encrypted": True,
+                        "encryptionBackend": data.get("encryptionBackend", "native")
+                    })
+                    if data.get("mac"):
+                        msg_obj["mac"] = data["mac"]
+                else:
+                    msg_obj["text"] = text
                 if reply_to:
                     msg_obj["replyTo"] = reply_to
-                if LoggAllowed:
-                    timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-                    peer_ip = websocket.remote_address[0]
-                    logging.info(f"IP: {peer_ip} | Nick: {users[websocket]['nick']} | Message: {text}")
-                    ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
-                    with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                        ip_log.write(f"{timestamp} | Nick: {users[websocket]['nick']} | Message: {text}\n")
                 final = json.dumps(msg_obj)
                 chat_history.append(msg_obj)
                 if len(chat_history) > 200:
@@ -622,16 +668,10 @@ async def chat_handler(websocket):
     except:
         pass
     finally:
-        if LoggAllowed:
-            timestamp = datetime.now().strftime("%Y-%m-%d  %H_%M  %S")
-            peer_ip = websocket.remote_address[0]
-            nick = users.get(websocket, {}).get("nick")
-            logging.info(f"Leaving | IP: {peer_ip} | Nick: {nick}")
-            ip_log_path = os.path.join("../Logs", "IpLogs", f"{peer_ip}.txt")
-            with open(ip_log_path, "a", encoding="utf-8") as ip_log:
-                ip_log.write(f"!!Leaving       | {timestamp} | Nick: {nick}\n")
-
         nick = users.get(websocket, {}).get("nick")
+        was_verified = nick in verified
+        log_event("LEAVE", nick, was_verified)
+
         if nick in verified:
             verified.remove(nick)
         if websocket in users:
@@ -666,6 +706,10 @@ SERVER_IP = get_server_ip()
 
 
 class CustomHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        kwargs["directory"] = SCRIPT_DIR
+        super().__init__(*args, **kwargs)
+
     def send_no_cache_headers(self):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
@@ -673,8 +717,8 @@ class CustomHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/file-list":
             files = [
-                fname for fname in os.listdir("uploads")
-                if os.path.isfile(os.path.join("uploads", fname))
+                fname for fname in os.listdir(UPLOADS_DIR)
+                if os.path.isfile(os.path.join(UPLOADS_DIR, fname))
             ]
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -684,17 +728,22 @@ class CustomHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/uploads/"):
-            file_path = os.path.normpath(unquote(self.path.lstrip("/")))
+            filename = os.path.basename(unquote(self.path[len("/uploads/"):]))
+            file_path = os.path.join(UPLOADS_DIR, filename)
             if os.path.exists(file_path):
                 self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
+                content_type, _ = mimetypes.guess_type(file_path)
+                is_image = bool(content_type and content_type.startswith("image/"))
+                self.send_header("Content-Type", content_type or "application/octet-stream")
+                self.send_header("Content-Length", str(os.path.getsize(file_path)))
                 filename = os.path.basename(file_path)
                 try:
                     filename.encode("ascii")
-                    content_disp = f'attachment; filename="{filename}"'
+                    content_disp = f'{"inline" if is_image else "attachment"}; filename="{filename}"'
                 except UnicodeEncodeError:
                     from urllib.parse import quote
-                    content_disp = f"attachment; filename*=UTF-8''{quote(filename)}"
+                    disposition = "inline" if is_image else "attachment"
+                    content_disp = f"{disposition}; filename*=UTF-8''{quote(filename)}"
                 self.send_header("Content-Disposition", content_disp)
                 self.end_headers()
                 with open(file_path, "rb") as f:
@@ -705,7 +754,7 @@ class CustomHandler(SimpleHTTPRequestHandler):
                 return
 
         if self.path in ("/", "/index.html"):
-            with open("index.html", "r", encoding="utf-8") as f:
+            with open(os.path.join(SCRIPT_DIR, "index.html"), "r", encoding="utf-8") as f:
                 content = f.read()
             content = content.replace(
                 "<title>LAN CHAT</title>",
@@ -721,6 +770,20 @@ class CustomHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/upload":
+            client_ip = self.client_address[0]
+            now = time.monotonic()
+            with upload_rate_lock:
+                last_upload = upload_last_request.get(client_ip, 0)
+                remaining = UPLOAD_COOLDOWN_SECONDS - (now - last_upload)
+                if remaining > 0:
+                    self.send_response(429)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Retry-After", str(max(1, int(remaining) + 1)))
+                    self.end_headers()
+                    self.wfile.write(b"Please wait before uploading another file.")
+                    return
+                upload_last_request[client_ip] = now
+
             content_length = int(self.headers.get('Content-Length', 0))
             content_type = self.headers.get('Content-Type', "")
             if "multipart/form-data" not in content_type:
@@ -742,12 +805,12 @@ class CustomHandler(SimpleHTTPRequestHandler):
             for part in msg.iter_parts():
                 if part.get_filename():
                     filename = os.path.basename(part.get_filename())
-                    filepath = os.path.join("uploads", filename)
+                    filepath = os.path.join(UPLOADS_DIR, filename)
                     base, ext = os.path.splitext(filename)
                     i = 1
                     while os.path.exists(filepath):
                         filename = f"{base}_{i}{ext}"
-                        filepath = os.path.join("uploads", filename)
+                        filepath = os.path.join(UPLOADS_DIR, filename)
                         i += 1
                     with open(filepath, "wb") as f:
                         f.write(part.get_payload(decode=True))

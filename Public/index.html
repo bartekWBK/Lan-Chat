@@ -32,6 +32,13 @@
 </div>
 
 <body>
+<div id="chat-loading-screen" class="chat-loading-screen" hidden>
+  <div class="chat-loading-card">
+    <img src="icon.png" alt="LAN Chat">
+    <div class="chat-loading-spinner" aria-hidden="true"></div>
+    <p id="chat-loading-message">Setting up end to end encryption...</p>
+  </div>
+</div>
 <div id="giphy-picker" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;"></div>
 <div id="account-modal" class="settings-modal" style="display:none;">
   <div class="settings-content">
@@ -68,13 +75,50 @@
 
 <div id="login-modal" class="login-modal">
   <div class="login-box">
-    <span id="close-login">&times;</span>
-    <h2>Log in</h2>
-    <input type="text" id="login-username" placeholder="Username">
-    <input type="password" id="login-password" placeholder="Password">
-    <div class="button-row">
-      <button id="login-btn">Login</button>
-      <button id="register-btn">Register</button>
+    <button id="close-login" class="auth-close" type="button" aria-label="Close">&times;</button>
+    <img class="auth-logo" src="icon.png" alt="LAN Chat">
+    <h2 id="auth-title">Log in</h2>
+    <p class="auth-subtitle">Use your account to continue.</p>
+    <div class="auth-field">
+      <label for="login-username">Username</label>
+      <div class="auth-input-wrap">
+        <span class="auth-input-icon" aria-hidden="true">@</span>
+        <input type="text" id="login-username" placeholder="Your username" autocomplete="username">
+      </div>
+    </div>
+    <div class="auth-field">
+      <label for="login-password">Password</label>
+      <div class="auth-input-wrap">
+        <span class="auth-input-icon" aria-hidden="true">&#128274;</span>
+        <input type="password" id="login-password" placeholder="Your password" autocomplete="current-password">
+        <button id="auth-password-toggle" class="auth-password-toggle" type="button" aria-label="Show password" title="Show password">&#128065;</button>
+      </div>
+    </div>
+    <div class="auth-actions">
+      <button id="login-btn" class="auth-primary-button" type="button">Log in <span aria-hidden="true">&#8594;</span></button>
+      <button id="register-btn" class="auth-secondary-button" type="button">Create account</button>
+    </div>
+    <center><p style="color: gray;"><i>passwords are encrypted and hashed</i></p></center>
+  </div>
+</div>
+
+<div id="entry-screen" class="entry-screen" aria-modal="true" role="dialog">
+  <div class="entry-card">
+    <img class="entry-logo" src="icon.png" alt="LAN Chat">
+    <h2>LAN Chat</h2>
+    <p class="entry-subtitle">Choose a nickname or use an account.</p>
+    <form id="entry-nickname-form" class="entry-nickname-form">
+      <label for="entry-nickname">Your nickname</label>
+      <div class="entry-input-wrap">
+        <span aria-hidden="true">@</span>
+        <input id="entry-nickname" type="text" maxlength="16" autocomplete="nickname" placeholder="Enter a nickname" required>
+      </div>
+      <button class="entry-primary-button" type="submit">Continue as guest <span aria-hidden="true">&#8594;</span></button>
+    </form>
+    <div class="entry-divider"><span>or</span></div>
+    <div class="entry-account-actions">
+      <button id="entry-login-button" type="button">Log in</button>
+      <button id="entry-register-button" type="button">Register</button>
     </div>
   </div>
 </div>
@@ -100,6 +144,36 @@
         <h2>Settings</h2>
         <div id="settings-list">
           <button id="wipe-blacklist-btn" style="display:none;">🧹 Wipe All Blacklisted Users</button>
+
+          <h3 class="settings-section-title">Encryption</h3>
+          <label class="switch">
+            <input type="checkbox" id="toggle-encryption-features" checked>
+            <span class="slider"></span>
+            <span class="switch-label">Enable encryption features</span>
+          </label>
+          <div id="encryption-dependent-settings" class="encryption-dependent-settings">
+          <label class="switch">
+            <input type="checkbox" id="toggle-e2e-encryption">
+            <span class="slider"></span>
+            <span class="switch-label">Encrypt messages I send</span>
+          </label>
+          <div class="encryption-mode-row">
+            <label for="encryption-mode">Encryption type</label>
+            <select id="encryption-mode">
+              <option value="AES-GCM-256">AES-GCM 256-bit</option>
+              <option value="AES-GCM-128">AES-GCM 128-bit</option>
+              <option value="AES-CBC-HMAC-256">AES-CBC + HMAC 256-bit</option>
+            </select>
+          </div>
+          <div class="encryption-key-row">
+            <label for="chat-encryption-key">Shared key <button id="toggle-chat-key-visibility" class="key-visibility-button" type="button" aria-label="Show shared key" title="Show shared key">&#128065;</button></label>
+            <input type="password" id="chat-encryption-key" placeholder="5+ characters" autocomplete="off">
+            <button id="set-chat-encryption-key" type="button">Set</button>
+            <button id="recheck-encryption-key" type="button">Recheck messages</button>
+          </div>
+          <div id="encryption-status" aria-live="polite"></div>
+          <p class="encryption-file-note">Files and photos are shared without encryption so everyone can open them. GIF messages still follow your encryption setting.</p>
+          </div>
 
           <h3 class="settings-section-title">General</h3>
           <label class="switch">
@@ -143,6 +217,16 @@
             <input type="checkbox" id="toggle-file-links">
             <span class="slider"></span>
             <span class="switch-label">Show files list</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-encryption-colors" checked>
+            <span class="slider"></span>
+            <span class="switch-label">Show encryption colors</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-hide-unreadable-encrypted">
+            <span class="slider"></span>
+            <span class="switch-label">Hide unreadable encrypted messages</span>
           </label>
           <div class="nick-color-row" style="margin-left:10px;">
             <label for="custom-nick-color" style="margin-bottom:0;">Nick color:</label>
@@ -357,6 +441,19 @@ if __name__ == "__main__":
   </div>
 </div>
 
+<div id="encryption-help-popup" class="encryption-help-popup" role="dialog" aria-modal="true" aria-labelledby="encryption-help-title" hidden>
+  <div class="encryption-help-card">
+    <button id="close-encryption-help" class="encryption-help-close" type="button" aria-label="Close">&times;</button>
+    <h2 id="encryption-help-title">Message not sent</h2>
+    <p>Encryption is enabled, but no shared key is set. Open Settings, enter the shared key, and try again.</p>
+    <div class="encryption-help-actions">
+      <button id="open-encryption-settings" type="button">Open Settings</button>
+      <button id="dismiss-encryption-help" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
   <script id="chat-js" src="chat.js"></script>
 
 </body>

@@ -5,8 +5,386 @@ let nick = "";
 let IP = "";
 let is_admin = false;
 
-const ws = new WebSocket(`ws://${location.hostname}:6789`);
-console.log("v: 1.6.2");
+const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
+const ws = new WebSocket(`${wsProtocol}://${location.hostname}:6789`);
+console.log("v: 1.7.0");
+let chatCryptoKey = null;
+let accountPassword = null;
+let pendingAccountPassword = null;
+let encryptionFeaturesEnabled = localStorage.getItem("encryptionFeaturesEnabled") !== "false";
+let encryptionEnabled = localStorage.getItem("e2eEncryptionEnabled") === "true";
+let encryptionMode = localStorage.getItem("e2eEncryptionMode") || "AES-GCM-256";
+let encryptionColorsEnabled = localStorage.getItem("encryptionColorsEnabled") !== "false";
+let hideUnreadableEncrypted = localStorage.getItem("hideUnreadableEncrypted") === "true";
+const chatEncryptionKeyInput = document.getElementById("chat-encryption-key");
+const setChatEncryptionKeyButton = document.getElementById("set-chat-encryption-key");
+const encryptionStatus = document.getElementById("encryption-status");
+const toggleEncryptionFeatures = document.getElementById("toggle-encryption-features");
+const encryptionDependentSettings = document.getElementById("encryption-dependent-settings");
+const toggleE2EEncryption = document.getElementById("toggle-e2e-encryption");
+const encryptionModeSelect = document.getElementById("encryption-mode");
+const recheckEncryptionKeyButton = document.getElementById("recheck-encryption-key");
+const toggleEncryptionColors = document.getElementById("toggle-encryption-colors");
+const toggleHideUnreadableEncrypted = document.getElementById("toggle-hide-unreadable-encrypted");
+const toggleChatKeyVisibilityButton = document.getElementById("toggle-chat-key-visibility");
+const encryptionHelpPopup = document.getElementById("encryption-help-popup");
+const openEncryptionSettingsButton = document.getElementById("open-encryption-settings");
+const closeEncryptionHelpButton = document.getElementById("close-encryption-help");
+const dismissEncryptionHelpButton = document.getElementById("dismiss-encryption-help");
+let encryptionRecheckPending = false;
+
+function setEncryptionStatus(message, isError = false) {
+  if (encryptionStatus) {
+    encryptionStatus.textContent = message;
+    encryptionStatus.style.color = isError ? "#dc3545" : "#198754";
+  }
+}
+
+function showEncryptionHelpPopup() {
+  if (encryptionHelpPopup) encryptionHelpPopup.hidden = false;
+}
+
+function closeEncryptionHelpPopup() {
+  if (encryptionHelpPopup) encryptionHelpPopup.hidden = true;
+}
+
+function setEncryptionStatusForCurrentState() {
+  if (!encryptionFeaturesEnabled) {
+    setEncryptionStatus("Encryption features are off. Messages are sent and shown without encryption.");
+  } else if (!window.crypto?.subtle && !window.CryptoJS) {
+    setEncryptionStatus("Encryption unavailable: this browser has no supported crypto API.", true);
+  } else if (encryptionEnabled && !chatCryptoKey) {
+    setEncryptionStatus("Action required: enable a shared key in this section before sending encrypted messages.", true);
+  } else if (encryptionEnabled) {
+    setEncryptionStatus("Ready: new messages use " + encryptionMode + ".");
+  } else {
+    setEncryptionStatus("Ready: encryption is off for new messages; existing encrypted messages can still be read with the right key.");
+  }
+}
+
+function updateEncryptionSettingsLock() {
+  if (!encryptionDependentSettings) return;
+  encryptionDependentSettings.classList.toggle("encryption-settings-disabled", !encryptionFeaturesEnabled);
+  encryptionDependentSettings.querySelectorAll("input, select, button").forEach(control => {
+    control.disabled = !encryptionFeaturesEnabled;
+  });
+}
+
+function removeEncryptedMessagesFromView() {
+  chat?.querySelectorAll("[data-original]").forEach(messageElement => {
+    const message = JSON.parse(messageElement.dataset.original);
+    if (message.encrypted) messageElement.remove();
+  });
+}
+
+function encryptKeyForProfile(passphrase) {
+  if (!accountPassword || !window.CryptoJS) return null;
+  return CryptoJS.AES.encrypt(passphrase, accountPassword).toString();
+}
+
+function decryptKeyFromProfile(encryptedPassphrase) {
+  if (!accountPassword || !window.CryptoJS || !encryptedPassphrase) return null;
+  try {
+    const passphrase = CryptoJS.AES.decrypt(encryptedPassphrase, accountPassword)
+      .toString(CryptoJS.enc.Utf8);
+    return passphrase || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveChatKeyToProfile(passphrase) {
+  const encryptedPassphrase = encryptKeyForProfile(passphrase);
+  if (loggedInUser && encryptedPassphrase && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "save-settings",
+      username: loggedInUser,
+      settings: { encryptedChatKey: encryptedPassphrase }
+    }));
+    return true;
+  }
+  return false;
+}
+
+async function deriveChatKey(passphrase) {
+  if (!window.crypto?.subtle && !window.CryptoJS) {
+    throw new Error("No browser encryption support is available.");
+  }
+  if (!window.crypto?.subtle || encryptionMode === "AES-CBC-HMAC-256") {
+    const keyLength = encryptionMode === "AES-GCM-128" ? 128 : 256;
+    const derived = CryptoJS.PBKDF2(passphrase, "lan-chat-e2e-room-v1", {
+      keySize: (keyLength + 256) / 32,
+      iterations: 250000,
+      hasher: CryptoJS.algo.SHA256
+    });
+    const aesWordCount = keyLength / 32;
+    const aesWords = derived.words.slice(0, aesWordCount);
+    const macWords = derived.words.slice(aesWordCount, aesWordCount + 8);
+    return {
+      backend: "fallback",
+      aesKey: CryptoJS.lib.WordArray.create(aesWords, keyLength / 8),
+      macKey: CryptoJS.lib.WordArray.create(macWords, 32)
+    };
+  }
+  const encoder = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey(
+    "raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"]
+  );
+  const keyLength = encryptionMode === "AES-GCM-128" ? 128 : 256;
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: encoder.encode("lan-chat-e2e-room-v1"),
+      iterations: 250000,
+      hash: "SHA-256"
+    },
+    baseKey,
+    { name: "AES-GCM", length: keyLength },
+    false,
+    ["encrypt", "decrypt"]
+  );
+  return { backend: "native", key };
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  bytes.forEach(byte => binary += String.fromCharCode(byte));
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  return Uint8Array.from(atob(value), character => character.charCodeAt(0));
+}
+
+async function setChatEncryptionKey(passphrase, options = {}) {
+  if (!encryptionFeaturesEnabled) {
+    setEncryptionStatus("Enable encryption features before loading a key.", true);
+    return false;
+  }
+  if (!passphrase || passphrase.length < 5) {
+    setEncryptionStatus("Use at least 5 characters.", true);
+    return false;
+  }
+  try {
+    const shouldShowLoading = encryptionFeaturesEnabled && !options.silent;
+    if (shouldShowLoading) showChatLoading("Setting up end to end encryption...");
+    const loadingStartedAt = performance.now();
+    const originalButtonText = setChatEncryptionKeyButton?.textContent;
+    if (setChatEncryptionKeyButton && !options.automatic) {
+      setChatEncryptionKeyButton.textContent = "Loading...";
+      setChatEncryptionKeyButton.disabled = true;
+    }
+    setEncryptionStatus("Loading...");
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 120)));
+    chatCryptoKey = await deriveChatKey(passphrase);
+    const remainingLoadingTime = Math.max(0, 2500 - (performance.now() - loadingStartedAt));
+    if (remainingLoadingTime) {
+      await new Promise(resolve => setTimeout(resolve, remainingLoadingTime));
+    }
+    sessionStorage.setItem("lanChatE2EKey", passphrase);
+    if (chatEncryptionKeyInput) chatEncryptionKeyInput.value = passphrase;
+    const profileSaved = saveChatKeyToProfile(passphrase);
+    setEncryptionStatus(profileSaved
+      ? "Loaded: encrypted copy saved to your profile."
+      : "Loaded: key is ready.");
+    const shouldRefreshHistory = options.requestHistory && (autoRecover || options.forceHistory);
+    if (ws.readyState === WebSocket.OPEN && shouldRefreshHistory) {
+      ws.send(JSON.stringify({ type: "get-history" }));
+    }
+    if (shouldShowLoading && !options.keepLoading && !shouldRefreshHistory) hideChatLoading();
+    if (setChatEncryptionKeyButton && !options.automatic) {
+      setChatEncryptionKeyButton.textContent = originalButtonText || "Set";
+      setChatEncryptionKeyButton.disabled = false;
+    }
+    return true;
+  } catch (error) {
+    if (setChatEncryptionKeyButton && !options.automatic) {
+      setChatEncryptionKeyButton.textContent = "Set";
+      setChatEncryptionKeyButton.disabled = false;
+    }
+    setEncryptionStatus(error.message, true);
+    if (shouldShowLoading) hideChatLoading();
+    return false;
+  }
+}
+
+async function encryptChatMessage(text) {
+  if (!encryptionFeaturesEnabled || !encryptionEnabled) return { text };
+  if (!chatCryptoKey) {
+    setEncryptionStatus("Action required: set a shared key in Settings before sending encrypted messages.", true);
+    showEncryptionHelpPopup();
+    return null;
+  }
+  if (chatCryptoKey.backend === "fallback") {
+    const iv = CryptoJS.lib.WordArray.random(16);
+    const encrypted = CryptoJS.AES.encrypt(text, chatCryptoKey.aesKey, { iv });
+    const ivBase64 = CryptoJS.enc.Base64.stringify(iv);
+    const ciphertext = encrypted.ciphertext.toString(CryptoJS.enc.Base64);
+    const mac = CryptoJS.HmacSHA256(ivBase64 + "." + ciphertext, chatCryptoKey.macKey)
+      .toString(CryptoJS.enc.Base64);
+    return { ciphertext, iv: ivBase64, mac, encryptionBackend: "fallback" };
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(text);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, chatCryptoKey.key, encoded);
+  return { ciphertext: bytesToBase64(new Uint8Array(ciphertext)), iv: bytesToBase64(iv), encryptionBackend: "native" };
+}
+
+async function decryptChatMessage(data) {
+  if (!data.encrypted) return { ...data, encryptionState: "plain" };
+  if (!encryptionFeaturesEnabled) {
+    return {
+      ...data,
+      text: "[Encrypted message: encryption features are disabled]",
+      encryptionState: "locked"
+    };
+  }
+  if (!chatCryptoKey) return { ...data, text: "[Encrypted message: set the shared chat passphrase]", encryptionState: "locked" };
+  try {
+    if (data.encryptionBackend === "fallback") {
+      if (chatCryptoKey.backend !== "fallback" || !data.mac) throw new Error("Missing authentication tag");
+      const expectedMac = CryptoJS.HmacSHA256(data.iv + "." + data.ciphertext, chatCryptoKey.macKey)
+        .toString(CryptoJS.enc.Base64);
+      if (expectedMac !== data.mac) throw new Error("Invalid message authentication");
+      const decrypted = CryptoJS.AES.decrypt(
+        { ciphertext: CryptoJS.enc.Base64.parse(data.ciphertext) },
+        chatCryptoKey.aesKey,
+        { iv: CryptoJS.enc.Base64.parse(data.iv) }
+      ).toString(CryptoJS.enc.Utf8);
+      if (!decrypted) throw new Error("Invalid plaintext");
+      return { ...data, text: decrypted, encryptionState: "decrypted" };
+    }
+    if (chatCryptoKey.backend !== "native") throw new Error("Wrong encryption backend");
+    const plaintext = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64ToBytes(data.iv) },
+      chatCryptoKey.key,
+      base64ToBytes(data.ciphertext)
+    );
+    return { ...data, text: new TextDecoder().decode(plaintext), encryptionState: "decrypted" };
+  } catch {
+    return { ...data, text: "[Unable to decrypt message with this key]", encryptionState: "wrong-key" };
+  }
+}
+
+async function waitForEncryptionSetup() {
+  if (!encryptionFeaturesEnabled || chatCryptoKey) return;
+  for (let attempt = 0; attempt < 120 && !chatCryptoKey; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+}
+
+if (toggleEncryptionFeatures) toggleEncryptionFeatures.checked = encryptionFeaturesEnabled;
+updateEncryptionSettingsLock();
+if (toggleE2EEncryption) toggleE2EEncryption.checked = encryptionEnabled;
+if (encryptionModeSelect) encryptionModeSelect.value = encryptionMode;
+if (toggleEncryptionColors) toggleEncryptionColors.checked = encryptionColorsEnabled;
+if (toggleHideUnreadableEncrypted) toggleHideUnreadableEncrypted.checked = hideUnreadableEncrypted;
+toggleEncryptionFeatures?.addEventListener("change", () => {
+  encryptionFeaturesEnabled = toggleEncryptionFeatures.checked;
+  localStorage.setItem("encryptionFeaturesEnabled", encryptionFeaturesEnabled);
+  updateEncryptionSettingsLock();
+  if (!encryptionFeaturesEnabled) {
+    chatCryptoKey = null;
+    if (chatEncryptionKeyInput) chatEncryptionKeyInput.value = "";
+    hideChatLoading();
+    safeSend({ type: "get-history" });
+  } else {
+    const savedChatKey = sessionStorage.getItem("lanChatE2EKey");
+    if (savedChatKey) {
+      chatEncryptionKeyInput.value = savedChatKey;
+      encryptionRecheckPending = true;
+      setChatEncryptionKey(savedChatKey, { automatic: true, requestHistory: true, forceHistory: true })
+        .then(accepted => {
+          if (!accepted) encryptionRecheckPending = false;
+        });
+    } else {
+      setEncryptionStatusForCurrentState();
+    }
+  }
+  setEncryptionStatusForCurrentState();
+});
+toggleE2EEncryption?.addEventListener("change", () => {
+  encryptionEnabled = toggleE2EEncryption.checked;
+  localStorage.setItem("e2eEncryptionEnabled", encryptionEnabled);
+  setEncryptionStatusForCurrentState();
+});
+encryptionModeSelect?.addEventListener("change", () => {
+  encryptionMode = encryptionModeSelect.value;
+  localStorage.setItem("e2eEncryptionMode", encryptionMode);
+  chatCryptoKey = null;
+  const savedChatKey = sessionStorage.getItem("lanChatE2EKey");
+  if (encryptionFeaturesEnabled && savedChatKey) {
+    setChatEncryptionKey(savedChatKey, { requestHistory: true });
+  }
+  else setEncryptionStatusForCurrentState();
+});
+toggleEncryptionColors?.addEventListener("change", () => {
+  encryptionColorsEnabled = toggleEncryptionColors.checked;
+  localStorage.setItem("encryptionColorsEnabled", encryptionColorsEnabled);
+  refreshEncryptionColors();
+});
+toggleHideUnreadableEncrypted?.addEventListener("change", () => {
+  hideUnreadableEncrypted = toggleHideUnreadableEncrypted.checked;
+  localStorage.setItem("hideUnreadableEncrypted", hideUnreadableEncrypted);
+  if (ws.readyState === WebSocket.OPEN) safeSend({ type: "get-history" });
+});
+
+if (!window.crypto?.subtle && !window.CryptoJS) {
+  setEncryptionStatusForCurrentState();
+} else {
+  const savedChatKey = sessionStorage.getItem("lanChatE2EKey");
+  if (encryptionFeaturesEnabled && savedChatKey) {
+    if (chatEncryptionKeyInput) chatEncryptionKeyInput.value = savedChatKey;
+    setEncryptionStatus("Key saved. Click Set to load it.");
+  } else {
+    setEncryptionStatusForCurrentState();
+  }
+}
+if (setChatEncryptionKeyButton) {
+  setChatEncryptionKeyButton.addEventListener("click", async () => {
+    encryptionRecheckPending = true;
+    const accepted = await setChatEncryptionKey(chatEncryptionKeyInput?.value || "", {
+      requestHistory: true,
+      forceHistory: true
+    });
+    if (!accepted) encryptionRecheckPending = false;
+  });
+}
+toggleChatKeyVisibilityButton?.addEventListener("click", () => {
+  const isHidden = chatEncryptionKeyInput.type === "password";
+  chatEncryptionKeyInput.type = isHidden ? "text" : "password";
+  toggleChatKeyVisibilityButton.setAttribute("aria-label", isHidden ? "Hide shared key" : "Show shared key");
+  toggleChatKeyVisibilityButton.title = isHidden ? "Hide shared key" : "Show shared key";
+});
+recheckEncryptionKeyButton?.addEventListener("click", async () => {
+  const passphrase = chatEncryptionKeyInput?.value || sessionStorage.getItem("lanChatE2EKey") || "";
+  encryptionRecheckPending = true;
+  if (chatEncryptionKeyInput?.value) {
+    const accepted = await setChatEncryptionKey(passphrase, { requestHistory: true, forceHistory: true });
+    if (!accepted) {
+      encryptionRecheckPending = false;
+      return;
+    }
+  } else if (!chatCryptoKey) {
+    encryptionRecheckPending = false;
+    setEncryptionStatus("Enter the shared key first.", true);
+    return;
+  }
+  if (ws.readyState === WebSocket.OPEN && !chatEncryptionKeyInput?.value) {
+    ws.send(JSON.stringify({ type: "get-history" }));
+    setEncryptionStatus("Checking stored messages with the current key...");
+  }
+});
+
+closeEncryptionHelpButton?.addEventListener("click", closeEncryptionHelpPopup);
+dismissEncryptionHelpButton?.addEventListener("click", closeEncryptionHelpPopup);
+openEncryptionSettingsButton?.addEventListener("click", () => {
+  closeEncryptionHelpPopup();
+  document.getElementById("settings-modal").style.display = "flex";
+});
+encryptionHelpPopup?.addEventListener("click", event => {
+  if (event.target === encryptionHelpPopup) closeEncryptionHelpPopup();
+});
 let lang = "javascript";
 const favKey = "giphy_favorites";
 const codeLang = document.getElementById("code-lang");
@@ -36,9 +414,29 @@ const toggleGifFeature = document.getElementById("toggle-gif-feature");
 const recoverBtn = document.getElementById("recover-chat-btn");
 const closeRecoverBtn = document.getElementById("close-recover-btn");
 let loggedInUser = localStorage.getItem("loggedInUser");
+let authMode = "login";
+const entryScreen = document.getElementById("entry-screen");
+const entryNicknameForm = document.getElementById("entry-nickname-form");
+const entryNicknameInput = document.getElementById("entry-nickname");
+const entryLoginButton = document.getElementById("entry-login-button");
+const entryRegisterButton = document.getElementById("entry-register-button");
+const chatLoadingScreen = document.getElementById("chat-loading-screen");
+const chatLoadingMessage = document.getElementById("chat-loading-message");
 let userFavorites = [];
 let attachedFile = null;
+let attachPreviewUrl = null;
+let uploadInProgress = false;
 let deletedFiles = new Set();
+
+function showChatLoading(message) {
+  if (!chatLoadingScreen) return;
+  if (chatLoadingMessage) chatLoadingMessage.textContent = message;
+  chatLoadingScreen.hidden = false;
+}
+
+function hideChatLoading() {
+  if (chatLoadingScreen) chatLoadingScreen.hidden = true;
+}
 if (localStorage.getItem("showTimestamps") === null) {
   localStorage.setItem("showTimestamps", "true");
 }
@@ -71,6 +469,7 @@ if (toggleReplyBtn) {
         div.innerHTML = formatMessage(originalData);
       }
     });
+    refreshEncryptionColors();
   });
 }
 
@@ -82,6 +481,61 @@ function showError(msg) {
   setTimeout(() => {
     box.style.display = "none";
   }, 4000);
+}
+
+function showEntryScreen() {
+  if (!entryScreen) return;
+  entryScreen.classList.remove("entry-screen-hidden");
+  entryNicknameInput.value = localStorage.getItem("lastNick") || "";
+  requestAnimationFrame(() => entryNicknameInput.focus());
+}
+
+function hideEntryScreen() {
+  if (entryScreen) entryScreen.classList.add("entry-screen-hidden");
+}
+
+function resetEncryptionForGuest() {
+  encryptionFeaturesEnabled = false;
+  encryptionEnabled = false;
+  chatCryptoKey = null;
+  accountPassword = null;
+  pendingAccountPassword = null;
+  sessionStorage.removeItem("lanChatE2EKey");
+  localStorage.setItem("encryptionFeaturesEnabled", "false");
+  localStorage.setItem("e2eEncryptionEnabled", "false");
+  if (chatEncryptionKeyInput) chatEncryptionKeyInput.value = "";
+  if (toggleEncryptionFeatures) toggleEncryptionFeatures.checked = false;
+  if (toggleE2EEncryption) toggleE2EEncryption.checked = false;
+  updateEncryptionSettingsLock();
+  hideChatLoading();
+  setEncryptionStatusForCurrentState();
+}
+
+function joinAsGuest(nickname) {
+  const cleanNickname = nickname.trim();
+  if (!cleanNickname || cleanNickname.length > 16) {
+    entryNicknameInput.focus();
+    return;
+  }
+  resetEncryptionForGuest();
+  localStorage.setItem("lastNick", cleanNickname);
+  nick = cleanNickname;
+  hideEntryScreen();
+  safeSend({ type: "join", nick: cleanNickname });
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const title = document.getElementById("auth-title");
+  const subtitle = document.querySelector(".auth-subtitle");
+  const loginButton = document.getElementById("login-btn");
+  const registerButton = document.getElementById("register-btn");
+  if (!title || !subtitle || !loginButton || !registerButton) return;
+  const isLogin = mode === "login";
+  title.textContent = isLogin ? "Log in" : "Register";
+  subtitle.textContent = isLogin ? "Use your account to continue." : "Create an account to continue.";
+  loginButton.innerHTML = isLogin ? "Log in <span aria-hidden='true'>&#8594;</span>" : "Create account <span aria-hidden='true'>&#8594;</span>";
+  registerButton.textContent = isLogin ? "Create account" : "Back to login";
 }
 
 function createFileElement(filename, url) {
@@ -143,12 +597,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (darkModeToggle.checked) document.body.classList.add("dark");
   else document.body.classList.remove("dark");
   
-  if (autoRecover) {
-    safeSend({ type: "get-history" });
-    if (recoverBtn) recoverBtn.style.display = "none";
-  } else {
-    if (recoverBtn) recoverBtn.style.display = "inline-block";
-  }
   fileInput.value = "";
   fileUploadLabel.textContent = "📎 Choose File";
   sendFileBtn.style.display = "none";
@@ -289,64 +737,51 @@ document.addEventListener("paste", (e) => {
 });
 
 function showAttachPreview() {
+  if (attachPreviewUrl) {
+    URL.revokeObjectURL(attachPreviewUrl);
+    attachPreviewUrl = null;
+  }
   if (!attachedFile) {
     attachPreview.innerHTML = "";
     return;
   }
   const fileExt = attachedFile.name.split('.').pop().toLowerCase();
-  const isImage = ["jpg","jpeg","png","gif","webp"].includes(fileExt);
-  const isDark = document.body.classList.contains("dark");
-  let fileCard = "";
-
-  const blueXBtn = `
-    <button id="remove-attach-btn" style="
-      position:absolute;top:8px;right:8px;
-      background:#3399ff;
-      border:none;
-      border-radius:6px;
-      width:38px;height:38px;
-      aspect-ratio:1/1;
-      line-height:1;
-      font-size:1.7em;
-      font-weight:bold;
-      cursor:pointer;
-      color:#fff;
-      display:flex;align-items:center;justify-content:center;
-      box-shadow:0 2px 8px rgba(0,0,0,0.10);
-      z-index:2;
-      padding:0;
-      transition:background 0.15s;
-    " title="Remove file">&times;</button>
-  `;
+  const isImage = attachedFile.type.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"].includes(fileExt);
+  const safeName = escapeHtml(attachedFile.name || "Untitled file");
+  const fileDetails = `${fileExt ? fileExt.toUpperCase() : "FILE"} · ${formatBytes(attachedFile.size)}`;
 
   if (isImage) {
-    const url = URL.createObjectURL(attachedFile);
-    fileCard = `
-      <div class="file-card" style="flex-direction:column; align-items:center; text-align:center; padding:10px; position:relative; margin:0; max-width:220px;">
-        <img src="${url}" alt="${escapeHtml(attachedFile.name)}"
-            style="max-width:120px; max-height:120px; border-radius:6px; margin-bottom:10px; border:1px solid ${isDark ? "#444" : "#ccc"};">
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-top:6px;">
-          <span title="${escapeHtml(attachedFile.name)}" class="file-name" style="flex-grow:1; text-align:left; margin-right:24px;">
-            ${escapeHtml(attachedFile.name)}
-          </span>
+    attachPreviewUrl = URL.createObjectURL(attachedFile);
+    attachPreview.innerHTML = `
+      <article class="attachment-preview attachment-preview--image">
+        <div class="attachment-preview-media">
+          <img src="${attachPreviewUrl}" alt="${safeName}">
         </div>
-        ${blueXBtn}
-      </div>
-    `;
+        <div class="attachment-preview-info">
+          <span class="attachment-preview-label">Attached image</span>
+          <strong class="attachment-preview-name" title="${safeName}">${safeName}</strong>
+          <span class="attachment-preview-details">${fileDetails}</span>
+        </div>
+        <button id="remove-attach-btn" class="attachment-preview-remove" type="button" title="Remove attachment" aria-label="Remove attachment">&times;</button>
+      </article>`;
   } else {
-    fileCard = `
-      <div class="file-card" style="position:relative; margin:0; max-width:350px;">
-        <span class="file-icon">📄</span>
-        <span title="${escapeHtml(attachedFile.name)}" class="file-name" style="margin-right:50px;">${escapeHtml(attachedFile.name)}</span>
-        ${blueXBtn}
-      </div>
-    `;
+    attachPreview.innerHTML = `
+      <article class="attachment-preview attachment-preview--file">
+        <span class="attachment-preview-file-icon">📄</span>
+        <div class="attachment-preview-info">
+          <span class="attachment-preview-label">Attached file</span>
+          <strong class="attachment-preview-name" title="${safeName}">${safeName}</strong>
+          <span class="attachment-preview-details">${fileDetails}</span>
+        </div>
+        <button id="remove-attach-btn" class="attachment-preview-remove" type="button" title="Remove attachment" aria-label="Remove attachment">&times;</button>
+      </article>`;
   }
 
-  attachPreview.innerHTML = fileCard;
-  document.getElementById("remove-attach-btn").onclick = () => {
+  attachPreview.querySelector("#remove-attach-btn").onclick = () => {
     attachedFile = null;
     fileInput.value = "";
+    if (attachPreviewUrl) URL.revokeObjectURL(attachPreviewUrl);
+    attachPreviewUrl = null;
     attachPreview.innerHTML = "";
   };
 }
@@ -566,7 +1001,28 @@ function observeChatVideos() {
 
 const chatMutationObs = new MutationObserver(() => {
   observeChatVideos();
+  refreshEncryptionColors();
 });
+
+function isFileAttachmentMessage(message) {
+  return typeof message?.text === "string" && /^📎 <a href="[^"]+"[^>]*>[^<]+<\/a>(?:<br>[\s\S]+)?$/.test(message.text);
+}
+
+function refreshEncryptionColors() {
+  chat.querySelectorAll("[data-original]").forEach(div => {
+    const message = JSON.parse(div.dataset.original);
+    div.classList.remove("message-plain", "message-encrypted", "message-locked", "message-wrong-key");
+    const isAttachment = isFileAttachmentMessage(message);
+    div.classList.toggle("attachment-message", isAttachment);
+    if (isAttachment) return;
+    if (!encryptionColorsEnabled) return;
+    if (message.encryptionState === "decrypted") div.classList.add("message-encrypted");
+    else if (message.encryptionState === "locked") div.classList.add("message-locked");
+    else if (message.encryptionState === "wrong-key") div.classList.add("message-wrong-key");
+    else div.classList.add("message-plain");
+  });
+}
+
 chatMutationObs.observe(chat, { childList: true, subtree: true });
 
 observeChatVideos();
@@ -574,6 +1030,7 @@ observeChatVideos();
 
 if (recoverBtn) {
   recoverBtn.addEventListener("click", () => {
+    showChatLoading("Loading chat history...");
     safeSend({ type: "get-history" });
     recoverBtn.style.display = "none";
   });
@@ -607,7 +1064,15 @@ function getUserColor(nick) {
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   if (bytes >= 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return bytes + " B";
+  return Math.round(bytes) + " B";
+}
+
+function formatTransferRate(bytesPerSecond) {
+  return `${formatBytes(Math.max(0, bytesPerSecond))}/s`;
+}
+
+function getUploadUrl(filename) {
+  return new URL(`/uploads/${encodeURIComponent(filename)}`, window.location.origin).href;
 }
 
 function escapeHtml(text) {
@@ -628,16 +1093,6 @@ function formatTime(iso) {
   }
 }
 
-function promptForNick() {
-  let lastNick = localStorage.getItem("lastNick") || "";
-  let input;
-  do {
-    input = prompt("Enter your nickname (1-16 chars):", lastNick)?.trim();
-  } while (!input || input.length < 1 || input.length > 16);
-  localStorage.setItem("lastNick", input);
-  return input;
-}
-
 msg.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     if (attachedFile) {
@@ -651,14 +1106,16 @@ msg.addEventListener("keydown", (e) => {
 });
 send.onclick = sendMessage;
 
-function sendMessage() {
+async function sendMessage() {
   if (attachedFile) {
     uploadAttachedFile();
     return;
   }
   const text = msg.value;
   if (!text.trim()) return;
-  let payload = { type: "message", nick, text };
+  const encrypted = await encryptChatMessage(text);
+  if (!encrypted) return;
+  let payload = { type: "message", nick, ...encrypted };
   if (msg.dataset.replyTo) {
     payload.replyTo = msg.dataset.replyTo;
   }
@@ -673,7 +1130,8 @@ function sendMessage() {
 }
 
 function uploadAttachedFile() {
-  if (!attachedFile) return;
+  if (!attachedFile || uploadInProgress) return;
+  uploadInProgress = true;
   sendFileBtn.classList.add("send-file-loading");
   sendFileBtn.disabled = true;
   sendFileBtn.innerHTML = 'Sending... <span class="spinner"></span>';
@@ -685,15 +1143,18 @@ function uploadAttachedFile() {
   xhr.open("POST", "/upload");
 
   xhr.onload = async function () {
+    uploadInProgress = false;
     sendFileBtn.classList.remove("send-file-loading");
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
     if (xhr.status === 200) {
       const savedName = xhr.responseText.trim();
-      const url = `http://${IP}:8000/uploads/${encodeURIComponent(savedName)}`;
+      const url = getUploadUrl(savedName);
       let text = msg.value.trim();
-      let payload = { type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` };
-      if (text) payload.text += `<br>${escapeHtml(text)}`;
+      let messageText = `📎 <a href="${url}" target="_blank">${savedName}</a>`;
+      if (text) messageText += `<br>${escapeHtml(text)}`;
+      // Attachments stay visible to every participant; only normal chat messages use E2E encryption.
+      let payload = { type: "message", nick, text: messageText };
       if (msg.dataset.replyTo) {
         payload.replyTo = msg.dataset.replyTo;
       }
@@ -709,11 +1170,12 @@ function uploadAttachedFile() {
       if (toggleFileLinks.checked && fileListDiv.style.display !== "none") fetchFileList();
       updateClearFilesBtn();
     } else {
-      alert("Failed to upload file");
+      showError(xhr.status === 429 ? "Please wait a moment before uploading another file." : "Failed to upload file");
     }
   };
 
   xhr.onerror = function () {
+    uploadInProgress = false;
     sendFileBtn.classList.remove("send-file-loading");
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
@@ -722,7 +1184,7 @@ function uploadAttachedFile() {
 
   xhr.send(formData);
 }
-code.onclick = () => {
+code.onclick = async () => {
   const selected = msg.value.slice(msg.selectionStart, msg.selectionEnd);
   const content = (selected || msg.value).trim();
   if (!content) {
@@ -736,7 +1198,9 @@ code.onclick = () => {
   } else {
     wrapped = "```plaintext\n" + content + "```";
   }
-  ws.send(JSON.stringify({ type: "message", nick, text: wrapped }));
+  const encrypted = await encryptChatMessage(wrapped);
+  if (!encrypted) return;
+  ws.send(JSON.stringify({ type: "message", nick, ...encrypted }));
   msg.value = "";
   setTimeout(() => {
     chat.scrollTop = chat.scrollHeight;
@@ -749,17 +1213,17 @@ ws.onopen = () => {
   if (savedToken) {
     ws.send(JSON.stringify({ type: "session-login", token: savedToken }));
   } else {
-    if (location.hostname != "localhost") {
-      nick = promptForNick();
-      ws.send(JSON.stringify({ type: "join", nick }));
-    } else {
-      ws.send(JSON.stringify({ type: "join", nick }));
-    }
+    showEntryScreen();
   }
 };
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
+ws.onmessage = async (event) => {
+  let data = JSON.parse(event.data);
+  if (data.type === "message") {
+    data = await decryptChatMessage(data);
+    if (!data) return;
+    if (hideUnreadableEncrypted && (data.encryptionState === "locked" || data.encryptionState === "wrong-key")) return;
+  }
   if (window.Prism) Prism.highlightAll();
     if (data.type === "error") {
       const errorBox = document.getElementById("error-message");
@@ -776,6 +1240,9 @@ ws.onmessage = (event) => {
   }
   if (data.type === "login-success" || data.type === "register-success") {
     loggedInUser = data.username;
+    hideEntryScreen();
+    const savedChatKey = sessionStorage.getItem("lanChatE2EKey");
+    if (savedChatKey && accountPassword) saveChatKeyToProfile(savedChatKey);
     localStorage.setItem("loggedInUser", data.username);
     localStorage.setItem("sessionToken", data.token);
     updateLoginUI();
@@ -860,16 +1327,38 @@ ws.onmessage = (event) => {
     loginToggleBtn.textContent = "🔑 Log in";
     showError(data.message || "Login failed. Wrong username or password.");
     if (data.message == "Invalid or expired session") {
-      ws.send(JSON.stringify({ type: "join", nick: promptForNick() }));
+      showEntryScreen();
     }
   }
   if (data.type === "history-available") {
-    if (recoverBtn && !autoRecover) recoverBtn.style.display = data.available ? "inline-block" : "none";
+    if (autoRecover) {
+      if (data.available) {
+        safeSend({ type: "get-history" });
+      } else {
+        hideChatLoading();
+      }
+      if (recoverBtn) recoverBtn.style.display = "none";
+    } else if (recoverBtn) {
+      recoverBtn.style.display = data.available ? "inline-block" : "none";
+    }
     return;
   }
   if (data.type === "history") {
+    if (encryptionFeaturesEnabled && autoRecover) {
+      showChatLoading("Checking encrypted messages...");
+      await waitForEncryptionSetup();
+    }
     chat.innerHTML = "";
-    (data.messages || []).forEach(msgData => {
+    let encryptedCount = 0;
+    let decryptedCount = 0;
+    let failedCount = 0;
+    for (const encryptedMessage of data.messages || []) {
+      if (encryptedMessage.encrypted) encryptedCount++;
+      const msgData = await decryptChatMessage(encryptedMessage);
+      if (!msgData) continue;
+      if (msgData.encryptionState === "decrypted") decryptedCount++;
+      if (msgData.encryptionState === "wrong-key" || msgData.encryptionState === "locked") failedCount++;
+      if (hideUnreadableEncrypted && (msgData.encryptionState === "locked" || msgData.encryptionState === "wrong-key")) continue;
       const div = document.createElement("div");
       div.id = "msg-" + msgData.timestamp;
       div.dataset.timestamp = msgData.timestamp;
@@ -879,7 +1368,7 @@ ws.onmessage = (event) => {
       }
       div.innerHTML = formatMessage(msgData);
       chat.appendChild(div);
-    });
+    }
     const imgs = chat.querySelectorAll("img");
     if (imgs.length) {
       let loaded = 0;
@@ -904,6 +1393,20 @@ ws.onmessage = (event) => {
 
     if (window.Prism) Prism.highlightAll();
     updateDeletedFilesInChat();
+    hideChatLoading();
+    if (encryptionRecheckPending) {
+      encryptionRecheckPending = false;
+      setEncryptionStatus(
+        encryptedCount
+          ? `Recheck complete: found ${encryptedCount} encrypted message${encryptedCount === 1 ? "" : "s"}; decrypted ${decryptedCount}, unavailable ${failedCount}.`
+          : "Recheck complete: no encrypted messages were found."
+      , failedCount > 0);
+    } else if (encryptedCount) {
+      setEncryptionStatus(
+        `Encryption check: found ${encryptedCount} encrypted message${encryptedCount === 1 ? "" : "s"}; matched ${decryptedCount}, unavailable ${failedCount}.`,
+        failedCount > 0
+      );
+    }
     return;
   }
   if (data.type === "flash" && data.site) {
@@ -1026,6 +1529,18 @@ ws.onmessage = (event) => {
   }
   if (data.type === "user-settings") {
     const settings = data.settings || {};
+    if ("encryptionFeaturesEnabled" in settings) {
+      encryptionFeaturesEnabled = settings.encryptionFeaturesEnabled;
+      toggleEncryptionFeatures.checked = encryptionFeaturesEnabled;
+      localStorage.setItem("encryptionFeaturesEnabled", encryptionFeaturesEnabled);
+      updateEncryptionSettingsLock();
+      if (!encryptionFeaturesEnabled) {
+        chatCryptoKey = null;
+        if (chatEncryptionKeyInput) chatEncryptionKeyInput.value = "";
+        hideChatLoading();
+        safeSend({ type: "get-history" });
+      }
+    }
     if ("gifFeatureEnabled" in settings) {
       toggleGifFeature.checked = settings.gifFeatureEnabled;
       gifFeatureEnabled = settings.gifFeatureEnabled;
@@ -1071,6 +1586,36 @@ ws.onmessage = (event) => {
       localStorage.setItem("autoRecover", autoRecover);
       if (recoverBtn) {
         recoverBtn.style.display = autoRecover ? "none" : "inline-block";
+      }
+    }
+    if ("e2eEncryptionEnabled" in settings) {
+      encryptionEnabled = settings.e2eEncryptionEnabled;
+      toggleE2EEncryption.checked = encryptionEnabled;
+      localStorage.setItem("e2eEncryptionEnabled", encryptionEnabled);
+    }
+    if ("e2eEncryptionMode" in settings) {
+      encryptionMode = settings.e2eEncryptionMode;
+      encryptionModeSelect.value = encryptionMode;
+      localStorage.setItem("e2eEncryptionMode", encryptionMode);
+    }
+    if ("encryptionColorsEnabled" in settings) {
+      encryptionColorsEnabled = settings.encryptionColorsEnabled;
+      toggleEncryptionColors.checked = encryptionColorsEnabled;
+      localStorage.setItem("encryptionColorsEnabled", encryptionColorsEnabled);
+    }
+    if ("hideUnreadableEncrypted" in settings) {
+      hideUnreadableEncrypted = settings.hideUnreadableEncrypted;
+      toggleHideUnreadableEncrypted.checked = hideUnreadableEncrypted;
+      localStorage.setItem("hideUnreadableEncrypted", hideUnreadableEncrypted);
+    }
+    if (encryptionFeaturesEnabled && !chatCryptoKey) {
+      const profileKey = decryptKeyFromProfile(settings.encryptedChatKey);
+      const savedChatKey = profileKey || sessionStorage.getItem("lanChatE2EKey");
+      if (savedChatKey) {
+        setChatEncryptionKey(savedChatKey, {
+          automatic: true,
+          requestHistory: true
+        });
       }
     }
     [...chat.children].forEach(div => {
@@ -1206,6 +1751,12 @@ ws.onmessage = (event) => {
     showError("Settings saved!");
   }
   if (data.type === "password-changed") {
+    if (pendingAccountPassword) {
+      accountPassword = pendingAccountPassword;
+      pendingAccountPassword = null;
+      const savedChatKey = sessionStorage.getItem("lanChatE2EKey");
+      if (savedChatKey) saveChatKeyToProfile(savedChatKey);
+    }
     showError("Password changed!");
     document.getElementById("account-change-password-form").style.display = "none";
   }
@@ -1348,7 +1899,7 @@ function fetchFileList() {
       files.forEach(fname => {
         const li = document.createElement("li");
         const a = document.createElement("a");
-        a.href = `http://${IP}:8000/uploads/${encodeURIComponent(fname)}`;
+        a.href = getUploadUrl(fname);
         a.textContent = fname;
         a.target = "_blank";
         li.appendChild(a);
@@ -1378,7 +1929,8 @@ if (clearFilesBtn) {
 
 function uploadFile() {
   const file = fileInput?.files[0];
-  if (!file) return;
+  if (!file || uploadInProgress) return;
+  uploadInProgress = true;
 
   sendFileBtn.classList.add("send-file-loading");
   sendFileBtn.disabled = true;
@@ -1412,14 +1964,16 @@ function uploadFile() {
   };
 
   xhr.onload = async function () {
+    uploadInProgress = false;
     sendFileBtn.classList.remove("send-file-loading");
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
     tracker.textContent = "";
     if (xhr.status === 200) {
       const savedName = xhr.responseText.trim();
-      const url = `http://${IP}:8000/uploads/${encodeURIComponent(savedName)}`;
+      const url = getUploadUrl(savedName);
       
+      // Attachments stay visible to every participant; only normal chat messages use E2E encryption.
       let payload = { type: "message", nick, text: `📎 <a href="${url}" target="_blank">${savedName}</a>` };
       if (msg.dataset.replyTo) {
         payload.replyTo = msg.dataset.replyTo;
@@ -1434,11 +1988,12 @@ function uploadFile() {
       if (toggleFileLinks.checked && fileListDiv.style.display !== "none") fetchFileList();
       updateClearFilesBtn();
     } else {
-      alert("Failed to upload file");
+      showError(xhr.status === 429 ? "Please wait a moment before uploading another file." : "Failed to upload file");
     }
   };
 
   xhr.onerror = function () {
+    uploadInProgress = false;
     sendFileBtn.classList.remove("send-file-loading");
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
@@ -1552,50 +2107,32 @@ function formatMessage(data, forceDeleted = false) {
     const isDeleted = forceDeleted || deletedFiles.has(filename);
 
     const fileExt = filename.split('.').pop().toLowerCase();
-    const isImage = ["jpg","jpeg","png","webp"].includes(fileExt);
-    const isGif = fileExt === "gif";
+    const isImage = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"].includes(fileExt);
     const previewEnabled = document.getElementById("toggle-image-preview")?.checked;
+    const safeUrl = escapeHtml(url);
+    const safeFilename = escapeHtml(filename);
 
     let fileCard = "";
     if (previewEnabled && isImage) {
-  fileCard = `
-  <div id="resizeImg" class="file-card${isDeleted ? ' file-deleted' : ''}">
-    <div class="thumb">
-      <img src="${url}" alt="${escapeHtml(filename)}"
-          onclick="openImageModal('${url}', '${escapeHtml(filename)}')">
-    </div>
-    <div style="display:flex; justify-content:space-between; align-items:flex-end; width:100%; margin-top:auto;">
-      <span title="${escapeHtml(filename)}" class="file-name" style="flex-grow:1; text-align:left; font-size:0.92em; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; ${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">
-        ${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}
-      </span>
-      ${!isDeleted ? `<button class="file-download-btn" 
-                        onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')" 
-                        style="margin-left:14px;min-width:90px;min-height:32px;font-size:1em;flex-shrink:0;">Download</button>` : ''}
-    </div>
-    <div class="download-progress" id="download-progress-${escapeHtml(filename)}" 
-        style="display:none;margin-top:4px;font-size:0.95em;color:#28a745; text-align:left;"></div>
-  </div>`;
-  }
-  if (isGif && previewEnabled) {
-    return `${replyHtml}${timestamp}${nickHtml}${extraText ? ` ${escapeHtml(extraText)} ${replyBtn}` : replyBtn}
-      <div class="chat-img-container" style="margin:8px 0;">
-        <div class="chat-img-wrapper" style="position:relative; display:inline-block;">
-          <img src="${url}" alt="GIF" class="chat-gif-img"
-              style="max-width:220px;max-height:220px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.10);cursor:pointer;"
-              onclick="openImageModal('${url}','GIF')">
-          <button class="Cannot" title="Cannot save gif sent from file">❗</button>
-
-        </div>
-      </div>`;
-  }
-    else {
       fileCard = `
-        <div class="file-card${isDeleted ? ' file-deleted' : ''}">
+        <article class="file-card file-card--image${isDeleted ? ' file-deleted' : ''}">
+          <button class="file-image-preview" type="button" data-image-url="${safeUrl}" data-image-name="${safeFilename}" ${isDeleted ? "disabled" : ""} aria-label="Open ${safeFilename}">
+            <img src="${safeUrl}" alt="${safeFilename}" loading="lazy" decoding="async">
+          </button>
+          <div class="file-card-meta">
+            <span title="${safeFilename}" class="file-name">${safeFilename}${isDeleted ? ' (deleted)' : ''}</span>
+            ${!isDeleted ? `<button class="file-download-btn" data-file-url="${safeUrl}" data-file-name="${safeFilename}">Download</button>` : ''}
+          </div>
+          <div class="download-progress" id="download-progress-${safeFilename}" style="display:none"></div>
+        </article>`;
+    } else {
+      fileCard = `
+        <article class="file-card file-card--document${isDeleted ? ' file-deleted' : ''}">
           <span class="file-icon">📄</span>
-          <span title="${escapeHtml(filename)}" class="file-name" style="${isDeleted ? 'text-decoration:line-through;color:#888;' : ''}">${escapeHtml(filename)}${isDeleted ? ' (deleted)' : ''}</span>
-          ${!isDeleted ? `<button class="file-download-btn" onclick="downloadFileWithProgress('${url}', '${escapeHtml(filename)}')">Download</button>` : ''}
-          <div class="download-progress" id="download-progress-${escapeHtml(filename)}" style="display:none;margin-top:4px;font-size:0.95em;color:#28a745;"></div>
-        </div>`;
+          <span title="${safeFilename}" class="file-name">${safeFilename}${isDeleted ? ' (deleted)' : ''}</span>
+          ${!isDeleted ? `<button class="file-download-btn" data-file-url="${safeUrl}" data-file-name="${safeFilename}">Download</button>` : ''}
+          <div class="download-progress" id="download-progress-${safeFilename}" style="display:none"></div>
+        </article>`;
     }
 
     return `${replyHtml}${timestamp}${nickHtml}${extraText ? ` ${escapeHtml(extraText)} ${replyBtn}` : replyBtn}${fileCard}`;
@@ -1739,6 +2276,18 @@ function formatMessage(data, forceDeleted = false) {
 }
 
 document.addEventListener('click', (e) => {
+  const imagePreview = e.target.closest('.file-image-preview');
+  if (imagePreview && !imagePreview.disabled) {
+    openImageModal(imagePreview.dataset.imageUrl, imagePreview.dataset.imageName);
+    return;
+  }
+
+  const downloadButton = e.target.closest('.file-download-btn[data-file-url]');
+  if (downloadButton) {
+    window.downloadFileWithProgress(downloadButton.dataset.fileUrl, downloadButton.dataset.fileName);
+    return;
+  }
+
   const link = e.target.closest('.reply-scroll-link');
   if (link && link.dataset.scrollto) {
     const target = document.getElementById(link.dataset.scrollto);
@@ -1928,6 +2477,7 @@ window.downloadFileWithProgress = function(url, filename) {
       }
       const total = parseInt(contentLength, 10);
       let loaded = 0;
+      const startedAt = performance.now();
       const reader = response.body.getReader();
       let chunks = [];
       function read() {
@@ -1947,10 +2497,12 @@ window.downloadFileWithProgress = function(url, filename) {
           }
           chunks.push(value);
           loaded += value.length;
+          const elapsedSeconds = Math.max((performance.now() - startedAt) / 1000, 0.05);
+          const speed = formatTransferRate(loaded / elapsedSeconds);
           if (total) {
-            progressDiv.textContent = `${formatBytes(loaded)} / ${formatBytes(total)} downloaded`;
+            progressDiv.textContent = `${formatBytes(loaded)} / ${formatBytes(total)} downloaded · ${speed}`;
           } else {
-            progressDiv.textContent = `${formatBytes(loaded)} downloaded`;
+            progressDiv.textContent = `${formatBytes(loaded)} downloaded · ${speed}`;
           }
           return read();
         });
@@ -2321,6 +2873,19 @@ observer.observe(document.body, { childList: true, subtree: true });
 function safeSend(obj) { if (ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(obj)); } else { ws.addEventListener("open", () => ws.send(JSON.stringify(obj)), { once: true }); } }
 
 document.addEventListener("DOMContentLoaded", () => {
+  entryNicknameForm?.addEventListener("submit", event => {
+    event.preventDefault();
+    joinAsGuest(entryNicknameInput.value);
+  });
+  entryLoginButton?.addEventListener("click", () => {
+    setAuthMode("login");
+    openModal();
+  });
+  entryRegisterButton?.addEventListener("click", () => {
+    setAuthMode("register");
+    openModal();
+  });
+
   const loginModal = document.getElementById("login-modal");
   const loginBox = document.querySelector(".login-box");
   const closeLogin = document.getElementById("close-login");
@@ -2589,13 +3154,11 @@ async function showGifPicker() {
         }
       });
 
-      div.addEventListener("click", () => {
+      div.addEventListener("click", async () => {
         if (!src) return;
-        const payload = {
-          type: "message",
-          nick,
-          text: src
-        };
+        const encrypted = await encryptChatMessage(src);
+        if (!encrypted) return;
+        const payload = { type: "message", nick, ...encrypted };
         if (msg.dataset.replyTo) {
           payload.replyTo = msg.dataset.replyTo;
           msg.dataset.replyTo = "";
@@ -2689,15 +3252,13 @@ async function showGifPicker() {
         });
       });
 
-      div.addEventListener("click", () => {
+      div.addEventListener("click", async () => {
         if (!src) return; 
         const isVideo = /\.mp4(\?.*)?$/i.test(src);
 
-        const payload = {
-          type: "message",
-          nick,
-          text: src
-        };
+        const encrypted = await encryptChatMessage(src);
+        if (!encrypted) return;
+        const payload = { type: "message", nick, ...encrypted };
 
         if (msgInput.dataset.replyTo) {
           payload.replyTo = msgInput.dataset.replyTo;
@@ -2743,7 +3304,12 @@ async function showGifPicker() {
         showFileLinks: toggleFileLinks.checked,
         showReplyBtn: toggleReplyBtn.checked,
         showImagePreview: toggleImagePreview.checked,
-        postFiles: togglePostFiles.checked
+        postFiles: togglePostFiles.checked,
+        encryptionFeaturesEnabled: toggleEncryptionFeatures.checked,
+        e2eEncryptionEnabled: toggleE2EEncryption.checked,
+        e2eEncryptionMode: encryptionModeSelect.value,
+        encryptionColorsEnabled: toggleEncryptionColors.checked,
+        hideUnreadableEncrypted: toggleHideUnreadableEncrypted.checked
       };
       ws.send(JSON.stringify({
         type: "save-settings",
@@ -2757,6 +3323,11 @@ async function showGifPicker() {
       localStorage.setItem("showReplyBtn", settings.showReplyBtn);
       localStorage.setItem("showImagePreview", settings.showImagePreview);
       localStorage.setItem("togglePostFiles", settings.postFiles);
+      localStorage.setItem("encryptionFeaturesEnabled", settings.encryptionFeaturesEnabled);
+      localStorage.setItem("e2eEncryptionEnabled", settings.e2eEncryptionEnabled);
+      localStorage.setItem("e2eEncryptionMode", settings.e2eEncryptionMode);
+      localStorage.setItem("encryptionColorsEnabled", settings.encryptionColorsEnabled);
+      localStorage.setItem("hideUnreadableEncrypted", settings.hideUnreadableEncrypted);
       showError("Settings saved!");
     };
   }
@@ -2824,6 +3395,7 @@ async function showGifPicker() {
       const oldPw = document.getElementById("account-old-password").value;
       const newPw = document.getElementById("account-new-password").value;
       if (!oldPw || !newPw) return showError("Fill both fields");
+      pendingAccountPassword = newPw;
       ws.send(JSON.stringify({
         type: "change-password",
         username: loggedInUser,
@@ -2851,6 +3423,7 @@ async function showGifPicker() {
 
   loginToggleBtn.addEventListener("click", (e) => {
     if (!loggedInUser) {
+      setAuthMode("login");
       openModal();
     }
   });
@@ -2886,15 +3459,23 @@ async function showGifPicker() {
   });
   closeLogin.addEventListener("click", closeModal);
 
+  document.getElementById("auth-password-toggle")?.addEventListener("click", () => {
+    const passwordInput = document.getElementById("login-password");
+    const showPassword = passwordInput.type === "password";
+    passwordInput.type = showPassword ? "text" : "password";
+    const toggle = document.getElementById("auth-password-toggle");
+    toggle.textContent = showPassword ? "◉" : "👁";
+    toggle.setAttribute("aria-label", showPassword ? "Hide password" : "Show password");
+  });
+
   loginBtn.addEventListener("click", () => {
     const username = document.getElementById("login-username").value.trim();
     const password = document.getElementById("login-password").value.trim();
-    safeSend({ type: "login", username, password });
+    accountPassword = password;
+    safeSend({ type: authMode === "login" ? "login" : "register", username, password });
   });
   registerBtn.addEventListener("click", () => {
-    const username = document.getElementById("login-username").value.trim();
-    const password = document.getElementById("login-password").value.trim();
-    safeSend({ type: "register", username, password });
+    setAuthMode(authMode === "login" ? "register" : "login");
   });
 
   updateLoginUI();
