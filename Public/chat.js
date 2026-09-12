@@ -4,10 +4,13 @@ let adminUsers = new Set();
 let nick = "";
 let IP = "";
 let is_admin = false;
+let isMuted = false;
+let privateChatUser = null;
+const privateChatSessions = new Map();
 
 const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
 const ws = new WebSocket(`${wsProtocol}://${location.hostname}:6789`);
-console.log("v: 1.7.0");
+console.log("v: 1.7.1");
 let chatCryptoKey = null;
 let accountPassword = null;
 let pendingAccountPassword = null;
@@ -483,6 +486,117 @@ function showError(msg) {
   }, 4000);
 }
 
+function showDialog(message, { title = "LAN Chat", confirmText = "OK", cancelText = null, input = false } = {}) {
+  return new Promise(resolve => {
+    const dialog = document.getElementById("app-dialog");
+    const titleEl = document.getElementById("app-dialog-title");
+    const messageEl = document.getElementById("app-dialog-message");
+    const inputEl = document.getElementById("app-dialog-input");
+    const cancel = document.getElementById("app-dialog-cancel");
+    const confirm = document.getElementById("app-dialog-confirm");
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    inputEl.hidden = !input;
+    inputEl.value = "";
+    cancel.hidden = !cancelText;
+    cancel.textContent = cancelText || "Cancel";
+    confirm.textContent = confirmText;
+    const finish = value => {
+      dialog.hidden = true;
+      confirm.onclick = cancel.onclick = null;
+      resolve(value);
+    };
+    confirm.onclick = () => finish(input ? inputEl.value.trim() : true);
+    cancel.onclick = () => finish(false);
+    dialog.onclick = event => { if (event.target === dialog) finish(false); };
+    dialog.hidden = false;
+    (input ? inputEl : confirm).focus();
+  });
+}
+
+function updateMutedState(muted) {
+  isMuted = Boolean(muted);
+  msg.disabled = isMuted;
+  send.disabled = isMuted;
+  msg.placeholder = isMuted ? "You are muted — you cannot send messages." : "Type your message...";
+  msg.parentElement.classList.toggle("input-muted", isMuted);
+  const privateInput = document.getElementById("private-chat-input");
+  const privateSend = document.querySelector("#private-chat-form button");
+  privateInput.disabled = isMuted;
+  privateSend.disabled = isMuted;
+  privateInput.placeholder = isMuted ? "You are muted — you cannot send messages." : "Write a private message...";
+}
+
+function addPrivateMessage(text, kind = "message") {
+  if (!privateChatUser) return;
+  const session = privateChatSessions.get(privateChatUser) || [];
+  session.push({ text, kind });
+  privateChatSessions.set(privateChatUser, session);
+  renderPrivateChat();
+}
+
+function renderPrivateChat() {
+  const messages = document.getElementById("private-chat-messages");
+  const tabs = document.getElementById("private-chat-tabs");
+  tabs.replaceChildren();
+  privateChatSessions.forEach((_, user) => {
+    const tab = document.createElement("div");
+    tab.className = `private-chat-tab${user === privateChatUser ? " active" : ""}`;
+    const select = document.createElement("button"); select.type = "button"; select.textContent = user;
+    select.onclick = () => { privateChatUser = user; document.getElementById("private-chat-title").textContent = `Private chat · ${user}`; renderPrivateChat(); };
+    const close = document.createElement("button"); close.type = "button"; close.className = "private-chat-tab-close"; close.textContent = "×"; close.title = `Close chat with ${user}`;
+    close.onclick = () => closePrivateChat(true, user);
+    tab.append(select, close); tabs.appendChild(tab);
+  });
+  messages.replaceChildren();
+  (privateChatSessions.get(privateChatUser) || []).forEach(({ text, kind }) => {
+  const item = document.createElement("div");
+  item.className = `private-chat-${kind}`;
+  item.textContent = text;
+  messages.appendChild(item);
+  });
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function openPrivateChat(user, announce = false) {
+  if (!user || user === nick) return;
+  privateChatUser = user;
+  if (!privateChatSessions.has(user)) privateChatSessions.set(user, []);
+  document.getElementById("private-chat-title").textContent = `Private chat · ${user}`;
+  document.getElementById("private-chat").hidden = false;
+  if (announce) safeSend({ type: "private-open", user });
+  renderPrivateChat();
+  document.getElementById("private-chat-input").focus();
+}
+
+function closePrivateChat(notify = true, user = privateChatUser) {
+  if (!user) return;
+  if (notify) safeSend({ type: "private-close", user });
+  privateChatSessions.delete(user);
+  document.getElementById("private-chat-input").value = "";
+  if (privateChatUser === user) privateChatUser = privateChatSessions.keys().next().value || null;
+  document.getElementById("private-chat").hidden = !privateChatUser;
+  if (privateChatUser) {
+    document.getElementById("private-chat-title").textContent = `Private chat · ${privateChatUser}`;
+    renderPrivateChat();
+  }
+}
+
+// User lists are refreshed outside the DOMContentLoaded callback, so this
+// helper must be available in the module's top-level scope.
+function openAdminMenu(user, trigger) {
+  const menu = document.getElementById("admin-menu");
+  document.getElementById("admin-menu-user").textContent = user;
+  menu.dataset.user = user;
+  menu.hidden = false;
+  const bounds = trigger.getBoundingClientRect();
+  const gutter = 10;
+  const menuWidth = menu.offsetWidth;
+  const menuHeight = menu.offsetHeight;
+  menu.style.left = `${Math.max(gutter, Math.min(bounds.left, window.innerWidth - menuWidth - gutter))}px`;
+  menu.style.top = `${Math.max(gutter, Math.min(bounds.bottom + 6, window.innerHeight - menuHeight - gutter))}px`;
+}
+
 function showEntryScreen() {
   if (!entryScreen) return;
   entryScreen.classList.remove("entry-screen-hidden");
@@ -878,7 +992,7 @@ darkModeToggle.addEventListener("change", () => {
     } else if (e.key === "ArrowUp") {
       mentionIndex = (mentionIndex - 1 + mentionList.length) % mentionList.length;
       e.preventDefault();
-    } else if (e.key === "Tab" || e.key === "Enter") {
+    } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
       e.preventDefault();
       const cursor = msg.selectionStart;
       const text = msg.value.slice(0, cursor);
@@ -927,54 +1041,62 @@ darkModeToggle.addEventListener("change", () => {
     }
   });
 
-  document.getElementById("admin-modal-close").onclick = () => {
-  document.getElementById("admin-modal").style.display = "none";
-};
+function closeAdminMenu() {
+  document.getElementById("admin-menu").hidden = true;
+}
 
-document.getElementById("admin-modal").addEventListener("click", (e) => {
-  if (e.target === document.getElementById("admin-modal")) {
-    document.getElementById("admin-modal").style.display = "none";
-  }
+document.getElementById("admin-menu-close").onclick = closeAdminMenu;
+document.addEventListener("click", event => {
+  const menu = document.getElementById("admin-menu");
+  if (!menu.hidden && !menu.contains(event.target) && !event.target.closest(".more-options-btn")) closeAdminMenu();
 });
 
 function adminAction(action) {
-  const adminModal = document.getElementById("admin-modal");
-  const user = adminModal.getAttribute("data-user");
+  const menu = document.getElementById("admin-menu");
+  const user = menu.dataset.user;
   if (!user) return;
   ws.send(JSON.stringify({ type: "admin", action, user }));
-  adminModal.style.display = "none";
+  closeAdminMenu();
 }
 
 document.getElementById("admin-mute-btn").onclick = () => adminAction("mute");
 document.getElementById("admin-unmute-btn").onclick = () => adminAction("unmute");
 document.getElementById("admin-kick-btn").onclick = () => adminAction("kick");
 document.getElementById("admin-ban-btn").onclick = () => adminAction("ban");
-document.getElementById("admin-flash-btn").onclick = () => {
-  let site = prompt("Enter the site URL to open in fullscreen for this user:");
-  if (!site) return;
-  if (!/^https?:\/\//i.test(site)) {
-    site = "https://" + site;
-  }
-  const adminModal = document.getElementById("admin-modal");
-  const user = adminModal.getAttribute("data-user");
-  if (!user) return;
-  ws.send(JSON.stringify({ type: "admin", action: "flash", user, site }));
-  adminModal.style.display = "none";
-};
 document.getElementById("admin-make-admin-btn").onclick = () => {
-  const adminModal = document.getElementById("admin-modal");
-  const user = adminModal.getAttribute("data-user");
+  const menu = document.getElementById("admin-menu");
+  const user = menu.dataset.user;
   if (!user) return;
   ws.send(JSON.stringify({ type: "admin", action: "make-admin", user }));
-  adminModal.style.display = "none";
+  closeAdminMenu();
 };
 document.getElementById("admin-remove-admin-btn").onclick = () => {
-  const adminModal = document.getElementById("admin-modal");
-  const user = adminModal.getAttribute("data-user");
+  const menu = document.getElementById("admin-menu");
+  const user = menu.dataset.user;
   if (!user) return;
   ws.send(JSON.stringify({ type: "admin", action: "remove-admin", user }));
-  adminModal.style.display = "none";
+  closeAdminMenu();
 };
+document.getElementById("admin-message-btn").onclick = () => {
+  openPrivateChat(document.getElementById("admin-menu").dataset.user, true);
+  closeAdminMenu();
+};
+document.getElementById("private-chat-close").onclick = () => closePrivateChat();
+document.getElementById("private-chat-form").onsubmit = event => {
+  event.preventDefault();
+  const input = document.getElementById("private-chat-input");
+  const text = input.value.trim();
+  if (!text || !privateChatUser || isMuted) return;
+  safeSend({ type: "private-message", user: privateChatUser, text });
+  addPrivateMessage(`You: ${text}`, "outgoing");
+  input.value = "";
+};
+document.getElementById("private-chat-input").addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    document.getElementById("private-chat-form").requestSubmit();
+  }
+});
 });
 
 
@@ -1014,6 +1136,7 @@ function refreshEncryptionColors() {
     div.classList.remove("message-plain", "message-encrypted", "message-locked", "message-wrong-key");
     const isAttachment = isFileAttachmentMessage(message);
     div.classList.toggle("attachment-message", isAttachment);
+    div.classList.toggle("reply-message", Boolean(message.replyTo));
     if (isAttachment) return;
     if (!encryptionColorsEnabled) return;
     if (message.encryptionState === "decrypted") div.classList.add("message-encrypted");
@@ -1094,7 +1217,19 @@ function formatTime(iso) {
 }
 
 msg.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.shiftKey) {
+    e.preventDefault();
+    msg.setRangeText("\n", msg.selectionStart, msg.selectionEnd, "end");
+    msg.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
   if (e.key === "Enter" && !e.shiftKey) {
+    if (!slashMenu.hidden) {
+      e.preventDefault();
+      selectSlashCommand();
+      e.stopImmediatePropagation();
+      return;
+    }
     if (attachedFile) {
       e.preventDefault();
       uploadAttachedFile();
@@ -1106,6 +1241,100 @@ msg.addEventListener("keydown", (e) => {
 });
 send.onclick = sendMessage;
 
+const slashCommands = [
+  ["pm", "<nickname>", "Open a private chat"], ["mute", "<nickname>", "Mute a user"],
+  ["unmute", "<nickname>", "Unmute a user"], ["kick", "<nickname>", "Remove a user"],
+  ["ban", "<nickname>", "Ban a user's IP"], ["make-admin", "<nickname>", "Grant admin"],
+  ["remove-admin", "<nickname>", "Remove admin"], ["wipe-blacklist", "", "Remove all IP bans"],
+  ["clear-files", "", "Delete uploaded files"]
+];
+let slashIndex = 0;
+let slashArgumentNavigated = false;
+let slashArgumentReady = false;
+const slashMenu = document.createElement("div");
+slashMenu.className = "slash-command-menu";
+slashMenu.hidden = true;
+document.body.appendChild(slashMenu);
+function renderSlashMenu() {
+  const [typedCommand, typedArg = ""] = msg.value.slice(1).toLowerCase().split(/\s+/, 2);
+  const activeCommand = slashCommands.find(([name]) => name === typedCommand);
+  const choosingArgument = activeCommand && msg.value.slice(1).includes(" ") && activeCommand[1];
+  const query = typedCommand;
+  const matches = slashCommands.filter(([name]) => name.startsWith(query));
+  slashMenu.replaceChildren();
+  if (choosingArgument) {
+    const users = currentUsers.map(user => user.nick).filter(name => name.toLowerCase().includes(typedArg));
+    slashIndex = Math.max(0, Math.min(slashIndex, users.length - 1));
+    slashMenu.innerHTML = `<div class="slash-menu-hint"><b>/${activeCommand[0]} ${activeCommand[1]}</b><span>${activeCommand[2]}</span></div>`;
+    users.forEach((user, index) => {
+      const option = document.createElement("button"); option.type = "button"; option.className = index === slashIndex ? "selected" : "";
+      option.innerHTML = `<b>${escapeHtml(user)}</b><small>Choose this user</small>`;
+      option.onclick = () => { msg.value = `/${activeCommand[0]} ${user}`; slashMenu.hidden = true; msg.focus(); };
+      slashMenu.appendChild(option);
+    });
+    slashMenu.hidden = users.length === 0;
+  } else {
+    slashIndex = Math.max(0, Math.min(slashIndex, matches.length - 1));
+    matches.forEach(([name, args, description], index) => {
+    const option = document.createElement("button"); option.type = "button";
+    option.className = index === slashIndex ? "selected" : "";
+    option.innerHTML = `<b>/${name}</b> <span>${args}</span><small>${description}</small>`;
+    option.onclick = () => { msg.value = `/${name}${args ? " " : ""}`; if (args) { slashArgumentReady = true; renderSlashMenu(); } else slashMenu.hidden = true; msg.focus(); };
+    slashMenu.appendChild(option);
+    });
+  }
+  const rect = msg.getBoundingClientRect(); slashMenu.style.left = `${rect.left}px`; slashMenu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+  if (!choosingArgument) slashMenu.hidden = matches.length === 0;
+  requestAnimationFrame(() => slashMenu.querySelector("button.selected")?.scrollIntoView({ block: "nearest" }));
+  return matches;
+}
+function selectSlashCommand() {
+  const [command] = msg.value.slice(1).toLowerCase().split(/\s+/, 1);
+  const definition = slashCommands.find(([name]) => name === command);
+  const typedArgument = msg.value.trim().split(/\s+/).slice(1).join(" ");
+  if (definition && msg.value.slice(1).includes(" ") && definition[1] && (typedArgument || slashArgumentNavigated || slashArgumentReady)) {
+    const users = currentUsers.filter(item => item.nick.toLowerCase().includes(typedArgument.toLowerCase()));
+    const user = users[slashIndex] || users[0];
+    if (user) msg.value = `/${definition[0]} ${user.nick}`;
+  } else {
+    const matches = slashCommands.filter(([name]) => name.startsWith(command));
+    const selected = matches[slashIndex];
+    if (selected) {
+      msg.value = `/${selected[0]}${selected[1] ? " " : ""}`;
+      if (selected[1]) { slashIndex = 0; slashArgumentReady = true; renderSlashMenu(); return; }
+    }
+  }
+  slashMenu.hidden = true;
+  msg.focus();
+}
+msg.addEventListener("input", () => { slashArgumentNavigated = false; slashArgumentReady = false; if (msg.value.startsWith("/")) renderSlashMenu(); else slashMenu.hidden = true; });
+msg.addEventListener("keydown", event => {
+  if (slashMenu.hidden) return;
+  const optionCount = slashMenu.querySelectorAll("button").length;
+  if (["ArrowDown", "ArrowUp"].includes(event.key) && optionCount) { event.preventDefault(); if (msg.value.slice(1).includes(" ")) slashArgumentNavigated = true; slashIndex = (slashIndex + (event.key === "ArrowDown" ? 1 : optionCount - 1)) % optionCount; renderSlashMenu(); }
+  if (event.key === "Tab") { event.preventDefault(); selectSlashCommand(); }
+  if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); selectSlashCommand(); }
+  if (event.key === "Escape") slashMenu.hidden = true;
+});
+
+function addCommandResult(text, denied = false) {
+  const div = document.createElement("div"); div.className = "system-message";
+  div.innerHTML = `<span style="color:${denied ? "#dc3545" : "#5865f2"};font-weight:bold;">${escapeHtml(text)}</span>`;
+  chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
+}
+
+function runSlashCommand(text) {
+  const [rawCommand, ...args] = text.trim().slice(1).split(/\s+/);
+  const command = rawCommand.toLowerCase(); const target = args.join(" ");
+  if (command === "pm") { if (!target) return addCommandResult("Usage: /pm <nickname>", true); openPrivateChat(target, true); addPrivateMessage(`You opened a private chat with ${target}.`, "system"); return; }
+  const known = slashCommands.some(([name]) => name === command);
+  if (!known) return addCommandResult(`Unknown command: /${command}`, true);
+  if (!is_admin) return addCommandResult("You do not have permission to use this command.", true);
+  if (["mute", "unmute", "kick", "ban", "make-admin", "remove-admin"].includes(command) && !target) return addCommandResult(`Usage: /${command} <nickname>`, true);
+  ws.send(JSON.stringify({ type: "admin", action: command, user: target || undefined }));
+  safeSend({ type: "command-log", message: `${nick} used /${command}${target ? ` on ${target}` : ""}.` });
+}
+
 async function sendMessage() {
   if (attachedFile) {
     uploadAttachedFile();
@@ -1113,6 +1342,7 @@ async function sendMessage() {
   }
   const text = msg.value;
   if (!text.trim()) return;
+  if (text.trim().startsWith("/")) { runSlashCommand(text); msg.value = ""; slashMenu.hidden = true; return; }
   const encrypted = await encryptChatMessage(text);
   if (!encrypted) return;
   let payload = { type: "message", nick, ...encrypted };
@@ -1179,7 +1409,7 @@ function uploadAttachedFile() {
     sendFileBtn.classList.remove("send-file-loading");
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
-    alert("Failed to upload file");
+    showError("Failed to upload file.");
   };
 
   xhr.send(formData);
@@ -1192,6 +1422,7 @@ code.onclick = async () => {
     return;
   }
   let lang = codeLang.value;
+  if (lang === "auto") lang = detectCodeLanguage(content) || "plaintext";
   let wrapped;
   if (lang && lang !== "plaintext") {
     wrapped = "```" + lang + "\n" + content + "```";
@@ -1363,6 +1594,7 @@ ws.onmessage = async (event) => {
       div.id = "msg-" + msgData.timestamp;
       div.dataset.timestamp = msgData.timestamp;
       div.dataset.original = JSON.stringify(msgData);
+      div.classList.toggle("reply-message", Boolean(msgData.replyTo));
       if (checkifdeleted(msgData)) {
         div.classList.add("file-deleted");
       }
@@ -1409,18 +1641,22 @@ ws.onmessage = async (event) => {
     }
     return;
   }
-  if (data.type === "flash" && data.site) {
-    const win = window.open(data.site, "_blank");
-    if (win) {
-      win.focus();
-      win.onload = () => {
-        if (win.document.documentElement.requestFullscreen) {
-          win.document.documentElement.requestFullscreen().catch(() => {});
-        }
-      };
-    } else {
-      alert("Popup blocked! Please allow popups for this site.");
-    }
+  if (data.type === "private-message") {
+    openPrivateChat(data.from);
+    addPrivateMessage(`${data.from}: ${data.text}`, "incoming");
+    return;
+  }
+  if (data.type === "private-open") {
+    openPrivateChat(data.from);
+    addPrivateMessage(`${data.from} opened a private chat.`, "system");
+    return;
+  }
+  if (data.type === "private-close") {
+    if (!privateChatSessions.has(data.from)) privateChatSessions.set(data.from, []);
+    privateChatSessions.get(data.from).push({ text: `${data.from} left the private chat.`, kind: "system" });
+    if (privateChatUser === data.from) renderPrivateChat();
+    showError(`${data.from} left the private chat.`);
+    return;
   }
   if (data.type === "files-cleared" || data.type === "file-deleted") {
     updateDeletedFilesInChat();
@@ -1459,9 +1695,8 @@ ws.onmessage = async (event) => {
     localStorage.setItem("lastNick", nick);
   }
   if (data.type === "unmuted") {
-    alert("You have been unmuted by the admin. You can send messages again.");
-    msg.disabled = false;
-    send.disabled = false;
+    updateMutedState(false);
+    showError("You have been unmuted. You can send messages again.");
     ws.send(JSON.stringify({ type: "check" }));
   }
   if (data.type === "message") {
@@ -1470,6 +1705,7 @@ ws.onmessage = async (event) => {
     div.dataset.timestamp = data.timestamp;
     div.id = "msg-" + data.timestamp;
     div.dataset.original = JSON.stringify(data);
+    div.classList.toggle("reply-message", Boolean(data.replyTo));
     div.innerHTML = formatMessage(data);
     chat.appendChild(div);
  
@@ -1626,7 +1862,7 @@ ws.onmessage = async (event) => {
     });
   }
   if (data.type === "kicked" && data.reason === "duplicate") {
-    alert("You have been disconnected because this account logged in elsewhere.");
+    showError("You have been disconnected because this account logged in elsewhere.");
     loggedInUser = null;
     localStorage.removeItem("loggedInUser");
     localStorage.removeItem("sessionToken");
@@ -1635,9 +1871,7 @@ ws.onmessage = async (event) => {
 }
   if (data.type === "kicked") {
     function sayAndReload(message) {
-      if (confirm(message)) {
-        window.location.reload();
-      }
+      showDialog(message, { title: "Disconnected", confirmText: "Reload" }).then(() => window.location.reload());
     }
     if (data.reason === "kicked") {
         sayAndReload("You have been kicked from the chat.");
@@ -1657,15 +1891,16 @@ ws.onmessage = async (event) => {
       window.location.href = `http://${data.ip}:8000`;
     }
     is_admin = data.is_admin || false;
+    updateMutedState(mutedUsers.has(nick));
     updateClearFilesBtn();
 
     const wipeBlacklistBtn = document.getElementById("wipe-blacklist-btn");
     if (is_admin && wipeBlacklistBtn) {
       wipeBlacklistBtn.style.display = "block";
-      wipeBlacklistBtn.onclick = () => {
-        if (confirm("Are you sure you want to remove all IP bans?")) {
+      wipeBlacklistBtn.onclick = async () => {
+        if (await showDialog("Remove all IP bans?", { title: "Wipe blacklist", confirmText: "Remove bans", cancelText: "Cancel" })) {
           ws.send(JSON.stringify({ type: "admin", action: "wipe-blacklist" }));
-          alert("All blacklisted users have been removed.");
+          showError("All blacklisted users have been removed.");
         }
       };
     } else if (wipeBlacklistBtn) {
@@ -1713,16 +1948,8 @@ ws.onmessage = async (event) => {
           moreBtn.className = "user-action-btn more-options-btn";
           moreBtn.onclick = (e) => {
             e.stopPropagation();
-            const adminModal = document.getElementById("admin-modal");
-            const adminModalUser = document.getElementById("admin-modal-user");
-            adminModalUser.textContent = user.nick;
-            adminModal.style.display = "flex";
-            adminModal.setAttribute("data-user", user.nick);
+            openAdminMenu(user.nick, moreBtn);
           };
-          if (!is_admin) {
-            const adminModal = document.getElementById("admin-modal");
-            if (adminModal) adminModal.style.display = "none";
-          }
           li.style.position = "relative";
           li.insertBefore(moreBtn, li.firstChild);
         }
@@ -1741,9 +1968,8 @@ ws.onmessage = async (event) => {
     }
   }
   if (data.type === "muted") {
-    alert("You have been muted by the admin. You cannot send messages.");
-    msg.disabled = true;
-    send.disabled = true;
+    updateMutedState(true);
+    showError("You have been muted. You cannot send messages.");
     ws.send(JSON.stringify({ type: "check" }));
 
   }
@@ -1822,6 +2048,7 @@ ws.onmessage = async (event) => {
     let verifiedUsers = new Set(data.verified || []);
     adminUsers = new Set(currentUsers.filter(u => u.is_admin).map(u => u.nick));
     is_admin = adminUsers.has(nick);
+    updateMutedState(mutedUsers.has(nick));
     userColors = {};
     userList.innerHTML = "";
     let myColor = null;
@@ -1854,10 +2081,6 @@ ws.onmessage = async (event) => {
         adminIcon.style.marginRight = "4px";
         li.insertBefore(adminIcon, li.firstChild);
       }
-      if (!is_admin) {
-        const adminModal = document.getElementById("admin-modal");
-        if (adminModal) adminModal.style.display = "none";
-      }
       if (is_admin) {
         const moreBtn = document.createElement("button");
         moreBtn.textContent = "⋮";
@@ -1865,11 +2088,7 @@ ws.onmessage = async (event) => {
         moreBtn.className = "user-action-btn more-options-btn";
         moreBtn.onclick = (e) => {
           e.stopPropagation();
-          const adminModal = document.getElementById("admin-modal");
-          const adminModalUser = document.getElementById("admin-modal-user");
-          adminModalUser.textContent = user.nick;
-          adminModal.style.display = "flex";
-          adminModal.setAttribute("data-user", user.nick);
+          openAdminMenu(user.nick, moreBtn);
         };
         li.style.position = "relative";
         li.insertBefore(moreBtn, li.firstChild);
@@ -1917,9 +2136,9 @@ function updateClearFilesBtn() {
   clearFilesBtn.style.display = (isAdmin() && fileListDiv.style.display !== "none") ? "block" : "none";
 }
 if (clearFilesBtn) {
-  clearFilesBtn.onclick = () => {
+  clearFilesBtn.onclick = async () => {
     if (!isAdmin()) return;
-    if (confirm("Delete all uploaded files?")) {
+    if (await showDialog("Delete all uploaded files? This cannot be undone.", { title: "Clear uploaded files", confirmText: "Delete", cancelText: "Cancel" })) {
       ws.send(JSON.stringify({ type: "admin", action: "clear-files" }));
       const ul = document.getElementById("uploaded-files");
       if (ul) ul.innerHTML = "";
@@ -1998,7 +2217,7 @@ function uploadFile() {
     sendFileBtn.disabled = false;
     sendFileBtn.innerHTML = "Send File";
     tracker.textContent = "";
-    alert("Failed to upload file");
+    showError("Failed to upload file.");
   };
 
   xhr.send(formData);
@@ -2008,6 +2227,57 @@ function linkify(text) {
   const urlPattern = /(\bhttps?:\/\/[^\s<]+)/gi;
   return text.replace(urlPattern, '<a href="$1" target="_blank">$1</a>');
 }
+
+// This intentionally uses small, deterministic heuristics instead of an online service.
+// A message must have clear structural code signals before it is converted to a code card.
+const codeLanguageLabels = {
+  javascript: "JavaScript", python: "Python", php: "PHP", html: "HTML",
+  css: "CSS", sql: "SQL", plaintext: "Plain text"
+};
+
+function detectCodeLanguage(value) {
+  const source = String(value || "").trim();
+  if (source.length < 12 || /^(https?:\/\/|www\.)/i.test(source)) return null;
+  const lines = source.split(/\r?\n/).filter(line => line.trim());
+  const multiline = lines.length > 1;
+  const hasBraces = /[{}]/.test(source);
+  const codePunctuation = /[;{}()=]|=>/.test(source);
+
+  // JSON is unambiguous, and Prism's JavaScript grammar highlights it well offline.
+  if (/^[\[{]/.test(source)) {
+    try {
+      JSON.parse(source);
+      return "javascript";
+    } catch (_) { /* Keep checking other languages. */ }
+  }
+  if (/<\/?[a-z][\w-]*(?:\s+[^<>]*?)?>/i.test(source) && (multiline || /<\/(?:html|body|div|main|section|script|style)>/i.test(source))) return "html";
+  if (/<\?php\b|\$[A-Za-z_]\w*\s*(?:=|\(|->)/.test(source) && (multiline || hasBraces)) return "php";
+  if (/^\s*(?:SELECT|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE)\b/im.test(source) && /\b(?:FROM|WHERE|VALUES|SET|TABLE)\b/i.test(source)) return "sql";
+  if (/^\s*(?:def|class|from|import|async\s+def)\s+\w+|^\s*(?:if|for|while|try|with)\b.*:\s*$/m.test(source) && (multiline || /\bprint\s*\(/.test(source))) return "python";
+  if (/^\s*(?:--|[.#][\w-]+|[\w-]+\s*:\s*[^;{}]+;)\s*$/m.test(source) && hasBraces && /[\w-]+\s*:\s*[^;{}]+;/.test(source)) return "css";
+  if (/(?:^|\n)\s*(?:function\s+\w+|const\s+\w+|let\s+\w+|var\s+\w+|class\s+\w+|import\s+.+\s+from|export\s+)/m.test(source) || (/=>|console\.log\s*\(|document\./.test(source) && (multiline || hasBraces))) return "javascript";
+
+  // Do not classify a short prose sentence merely because it includes punctuation.
+  if (multiline && hasBraces && codePunctuation && /(?:\breturn\b|\bif\b|\belse\b|\bnew\b|\w+\s*\([^\n]*\)\s*\{)/.test(source)) return "javascript";
+  return null;
+}
+
+function normaliseCodeLanguage(language) {
+  const aliases = { js: "javascript", py: "python", shell: "plaintext", bash: "plaintext", json: "javascript", text: "plaintext", txt: "plaintext" };
+  const resolved = aliases[String(language || "plaintext").toLowerCase()] || String(language || "plaintext").toLowerCase();
+  return Object.prototype.hasOwnProperty.call(codeLanguageLabels, resolved) ? resolved : "plaintext";
+}
+
+function renderCodeBlock(code, language, detected = false) {
+  const safeLanguage = normaliseCodeLanguage(language);
+  const label = safeLanguage === "javascript" && /^\s*[\[{]/.test(code) ? "JSON" : codeLanguageLabels[safeLanguage];
+  return `<section class="code-block" aria-label="${label} code">
+    <header class="code-block-header"><span class="code-language">${detected ? "Detected: " : ""}${label}</span><button class="copy-btn" type="button" title="Copy ${label} code" aria-label="Copy ${label} code">Copy code</button></header>
+    <pre class="language-${safeLanguage}"><code class="language-${safeLanguage}">${escapeHtml(code)}</code></pre>
+    <footer class="code-block-footer"><button class="copy-btn" type="button" title="Copy ${label} code" aria-label="Copy ${label} code">Copy code</button></footer>
+  </section>`;
+}
+
 function formatMessage(data, forceDeleted = false) {
   let timestamp = showTimestamps && data.timestamp
     ? `<span class="timestamp">[${formatTime(data.timestamp)}]</span> `
@@ -2083,17 +2353,7 @@ function formatMessage(data, forceDeleted = false) {
       let shortText = replyText.length > 80 ? replyText.slice(0, 80) + "..." : replyText;
       if (fileMatch || codeMatch || imgMatch || urlMatch || videoMatch) shortText = "";
 
-      const isDark = document.body.classList.contains("dark");
-      const replyBg = isDark ? "#232323" : "#f7f7f7";
-      const replyBorder = isDark ? "#444" : "#ccc";
-      const replyColor = isDark ? "#eee" : "#444";
-      replyHtml = `
-        <div class="reply-preview-in-chat reply-scroll-link"
-            data-scrollto="msg-${data.replyTo}"
-            style="cursor:pointer;display:flex;align-items:center;gap:10px;background:${replyBg};border-left:3px solid ${replyBorder};padding:3px 8px;margin-bottom:0;border-radius:5px;font-size:0.95em;line-height:1.2;">
-          <span style="font-weight:500;color:#3399ff;min-width:110px;">↩ Replied to <span style="color:${userColors[repliedMsg.nick] || '#007bff'}">${escapeHtml(repliedMsg.nick)}</span>:</span>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${shortText} ${preview}</span>
-        </div>`;
+      replyHtml = `<div class="reply-preview-in-chat reply-scroll-link" data-scrollto="msg-${data.replyTo}"><span class="reply-reference">↩ Replying to <strong class="reply-target-name">${escapeHtml(repliedMsg.nick)}</strong></span><span class="reply-snippet">${shortText} ${preview}</span></div>`;
     }
   }
 
@@ -2140,13 +2400,14 @@ function formatMessage(data, forceDeleted = false) {
 
   const singleCodeMatch = text.trim().match(/^```(\w+)?\n?([\s\S]*?)```$/);
   if (singleCodeMatch) {
-    let lang = singleCodeMatch[1] ? singleCodeMatch[1].toLowerCase() : "plaintext";
+    let lang = singleCodeMatch[1] ? singleCodeMatch[1].toLowerCase() : detectCodeLanguage(singleCodeMatch[2]) || "plaintext";
     const code = singleCodeMatch[2];
-    return `${replyHtml}${timestamp}${nickHtml}${replyBtn}
-      <div class="code-block">
-        <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
-        <button class="copy-btn" title="Copy code">Copy</button>
-      </div>`;
+    return `${replyHtml}${timestamp}${nickHtml}${replyBtn}${renderCodeBlock(code, lang)}`;
+  }
+
+  const detectedLanguage = detectCodeLanguage(text);
+  if (detectedLanguage) {
+    return `${replyHtml}${timestamp}${nickHtml}${replyBtn}${renderCodeBlock(text, detectedLanguage, true)}`;
   }
   if (/^<img\s+src="([^"]+)"[^>]*>$/i.test(data.text.trim())) {
     const imgMatch = data.text.trim().match(/^<img\s+src="([^"]+)"[^>]*>$/i);
@@ -2174,12 +2435,7 @@ function formatMessage(data, forceDeleted = false) {
   processed = escapeHtml(processed);
   processed = processed.replace(/___CODEBLOCK(\d+)___/g, (_, i) => {
     const { lang, code } = codeBlocks[i];
-    return `
-      <div class="code-block">
-        <pre><code class="language-${lang}">${escapeHtml(code)}</code></pre>
-        <button class="copy-btn" title="Copy code">Copy</button>
-      </div>
-    `;
+    return renderCodeBlock(code, lang || detectCodeLanguage(code) || "plaintext");
   });
   if (!fileLinkMatch && !singleCodeMatch) {
 
@@ -2213,8 +2469,13 @@ function formatMessage(data, forceDeleted = false) {
       </div>
     </div>`;
     }
-    let parts = text.split(/\s+/);
+    // Keep whitespace as tokens: splitting on it and joining with spaces used to
+    // flatten Shift+Enter line breaks in ordinary formatted messages.
+    let parts = text.split(/(\s+)/);
     let processedParts = parts.map(word => {
+      if (/^\s+$/.test(word)) {
+        return escapeHtml(word).replace(/\r?\n/g, "<br>");
+      }
       const favs = userFavorites;
       const isFav = favs.includes(word);
       if (/https?:\/\/[^\s<]+?\.gif(\?.*)?/i.test(word)) {
@@ -2258,7 +2519,7 @@ function formatMessage(data, forceDeleted = false) {
       }
   });
 
-    processed = processedParts.join(' ');
+    processed = processedParts.join('');
     if (processed.includes('class="chat-img-container"')){
       return processed;
     }
@@ -2272,7 +2533,7 @@ function formatMessage(data, forceDeleted = false) {
       processed = processed.replace(userMentionRegex, `<span class="mention">@${escapeHtml(user.nick)}</span>`);
     }
   });
-  return `${replyHtml}${timestamp}${nickHtml} ${processed} ${replyBtn}`;
+  return `${replyHtml}<span class="message-row">${timestamp}${nickHtml}<span class="message-text">${processed}</span>${replyBtn ? `<span class="message-actions">${replyBtn}</span>` : ""}</span>`;
 }
 
 document.addEventListener('click', (e) => {
@@ -2322,7 +2583,7 @@ document.addEventListener('click', (e) => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(textToCopy).then(() => {
         button.textContent = 'Copied!';
-        setTimeout(() => button.textContent = 'Copy', 1500);
+        setTimeout(() => button.textContent = 'Copy code', 1500);
       }).catch(() => {
         fallbackCopyText(textToCopy, button);
       });
@@ -2340,22 +2601,7 @@ document.addEventListener('click', (e) => {
       if (!replyPreview) {
         replyPreview = document.createElement('div');
         replyPreview.id = 'reply-preview';
-        replyPreview.style.display = "flex";
-        replyPreview.style.alignItems = "center";
-        replyPreview.style.gap = "10px";
-        replyPreview.style.background = darkModeToggle.checked ? "#232323" : "#e9f3ff";
-        replyPreview.style.color = darkModeToggle.checked ? "#eee" : "#222";
-        replyPreview.style.border = `1.5px solid ${darkModeToggle.checked ? "#444" : "#ccc"}`;
-        replyPreview.style.borderRadius = "5px";
-        replyPreview.style.padding = "7px 14px";
-        replyPreview.style.marginTop = "12px";
-        replyPreview.style.marginBottom = "0";
-        replyPreview.style.fontSize = "1em";
-        replyPreview.style.maxWidth = "98%";
-        replyPreview.style.boxShadow = darkModeToggle.checked
-          ? "0 2px 12px rgba(30,60,120,0.18)"
-          : "0 2px 12px rgba(0,80,200,0.12)";
-        replyPreview.style.transition = "all 0.25s cubic-bezier(.4,2,.6,1)";
+        replyPreview.className = "reply-composer-preview";
         const replyPreviewContainer = document.getElementById('reply-preview-container');
         if (replyPreviewContainer) {
           replyPreviewContainer.innerHTML = '';
@@ -2414,11 +2660,9 @@ const fileMatch = originalData.text.match(/^📎 <a href="([^"]+)"[^>]*>([^<]+)<
       if (fileMatch || codeMatch) shortText = "";
 
       replyPreview.innerHTML = `
-        <span style="font-weight:500;color:#3399ff;">↩ Replying to <span style="color:${userColors[originalData.nick] || '#007bff'}">${escapeHtml(originalData.nick)}</span>:</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${shortText} ${previewContent}</span>
-        <span style="flex:0 0 auto; margin-left:auto;">
-          <button id="cancel-reply" style="font-size:0.9em;padding:2px 10px;line-height:1.1;border-radius:4px;background:${darkModeToggle.checked ? "#444" : "#eee"};border:1px solid ${darkModeToggle.checked ? "#666" : "#ccc"};color:${darkModeToggle.checked ? "#eee" : "#444"};cursor:pointer;">✖</button>
-        </span>
+        <span class="reply-composer-label">↩ Replying to <strong class="reply-target-name">${escapeHtml(originalData.nick)}</strong></span>
+        <span class="reply-composer-snippet">${shortText} ${previewContent}</span>
+        <button id="cancel-reply" class="reply-cancel" type="button" aria-label="Cancel reply" title="Cancel reply">×</button>
       `;
 
 
@@ -2454,7 +2698,7 @@ function fallbackCopyText(text, button) {
     button.textContent = 'Failed';
   }
 
-  setTimeout(() => button.textContent = 'Copy', 1500);
+  setTimeout(() => button.textContent = 'Copy code', 1500);
 }
 
 window.downloadFileWithProgress = function(url, filename) {
@@ -2526,8 +2770,7 @@ let i = setInterval(() => {
       chat.scrollTop = chat.scrollHeight;
     }
     clearInterval(i);
-    alert("🚫 Disconnected from server. The server may be offline.");
-    location.reload();
+    showDialog("The server may be offline.", { title: "Connection lost", confirmText: "Reload" }).then(() => location.reload());
     return;
   }
   isAlive = false;
@@ -2614,6 +2857,7 @@ function updateDeletedFilesInChat() {
     });
 }
 const langEmojis = {
+  auto: "✨",
   plaintext: "📋",
   php: "🐘",
   python: "🐍",
@@ -2627,11 +2871,15 @@ function setLangSelectDisplay() {
   for (const opt of codeLang.options) {
     const val = opt.value;
     if (codeLang.value === val) {
-      opt.textContent = val === "plaintext" ? `${langEmojis[val]} None` : (langEmojis[val] || "");
+      opt.textContent = val === "auto" ? `${langEmojis[val]} Auto-detect` : val === "plaintext" ? `${langEmojis[val]} Plain text` : (langEmojis[val] || "");
     } else {
       if (langEmojis[val]) {
+        if (val === "auto") {
+          opt.textContent = `${langEmojis[val]} Auto-detect`;
+          continue;
+        }
         if (val === "plaintext") {
-          opt.textContent = `${langEmojis[val]} None`;
+          opt.textContent = `${langEmojis[val]} Plain text`;
           continue;
         }
         opt.textContent = `${langEmojis[val]} ${val.charAt(0).toUpperCase() + val.slice(1)}`;
@@ -2644,8 +2892,10 @@ codeLang.addEventListener("mousedown", () => {
   for (const opt of codeLang.options) {
     const val = opt.value;
     if (langEmojis[val]) {
-      if (val === "plaintext") {
-        opt.textContent = `${langEmojis[val]} None`;
+      if (val === "auto") {
+        opt.textContent = `${langEmojis[val]} Auto-detect`;
+      } else if (val === "plaintext") {
+        opt.textContent = `${langEmojis[val]} Plain text`;
       } else {
         opt.textContent = `${langEmojis[val]} ${val.charAt(0).toUpperCase() + val.slice(1)}`;
       }

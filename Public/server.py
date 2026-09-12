@@ -509,12 +509,6 @@ async def chat_handler(websocket):
                                             await ws.send(json.dumps({"type": "system-message", "message": "Your admin rights have been removed."}))
                                             await notify_users()
                                         break
-                    elif action == "flash":
-                        user_to_flash = data.get("user")
-                        site = data.get("site")
-                        for ws, info in users.items():
-                            if info["nick"] == user_to_flash:
-                                await ws.send(json.dumps({"type": "flash", "site": site}))
                     if action == "clear-files":
                         deleted_files = []
                         for fname in os.listdir(UPLOADS_DIR):
@@ -553,6 +547,56 @@ async def chat_handler(websocket):
                                 break
 
             if websocket not in users:
+                continue
+
+            if msg_type == "command-log":
+                if users[websocket].get("is_admin"):
+                    message = str(data.get("message", ""))[:200]
+                    if message:
+                        payload = json.dumps({"type": "system-message", "message": message})
+                        await asyncio.gather(*[asyncio.create_task(client.send(payload)) for client in clients])
+                else:
+                    await websocket.send(json.dumps({"type": "Denied", "message": "You do not have permission to use this command."}))
+                continue
+
+            if msg_type == "private-open":
+                recipient = data.get("user")
+                if recipient and recipient != users[websocket]["nick"]:
+                    for ws, info in list(users.items()):
+                        if info["nick"] == recipient:
+                            await ws.send(json.dumps({
+                                "type": "private-open",
+                                "from": users[websocket]["nick"]
+                            }))
+                            break
+                continue
+
+            if msg_type == "private-message":
+                if users[websocket]["nick"] in muted:
+                    continue
+                recipient = data.get("user")
+                text = str(data.get("text", "")).strip()
+                if recipient and text and recipient != users[websocket]["nick"]:
+                    for ws, info in list(users.items()):
+                        if info["nick"] == recipient:
+                            await ws.send(json.dumps({
+                                "type": "private-message",
+                                "from": users[websocket]["nick"],
+                                "text": text[:2000]
+                            }))
+                            break
+                continue
+
+            if msg_type == "private-close":
+                recipient = data.get("user")
+                if recipient:
+                    for ws, info in list(users.items()):
+                        if info["nick"] == recipient:
+                            await ws.send(json.dumps({
+                                "type": "private-close",
+                                "from": users[websocket]["nick"]
+                            }))
+                            break
                 continue
 
             if msg_type == "color":

@@ -13,11 +13,8 @@
   <script src="prism.js"></script>
 </head>
 
-<div id="admin-modal" class="admin-modal" style="display:none;">
-  <div class="admin-modal-content">
-    <span class="admin-modal-close" id="admin-modal-close">&times;</span>
-    <h2 id="admin-modal-title">User Actions</h2>
-    <div id="admin-modal-user" style="font-size:1.2em;margin-bottom:10px;"></div>
+<div id="admin-menu" class="admin-user-menu" hidden>
+    <div class="admin-menu-heading"><span id="admin-menu-user"></span><button id="admin-menu-close" type="button" aria-label="Close user actions">&times;</button></div>
     <div class="admin-modal-actions">
       <button id="admin-mute-btn">🔇 Mute</button>
       <button id="admin-unmute-btn">🔊 Unmute</button>
@@ -25,10 +22,8 @@
       <button id="admin-ban-btn">⛔ Ban (IP)</button>
       <button id="admin-make-admin-btn">🛡️ Make Admin</button>
       <button id="admin-remove-admin-btn">❌ Remove Admin</button>
-      <button id="admin-flash-btn">⚡ Flash </button>
-      <button id="admin-message-btn">💬 Private Message(N)</button>
+      <button id="admin-message-btn">💬 Private message</button>
     </div>
-  </div>
 </div>
 
 <body>
@@ -244,11 +239,12 @@
     <div class="input-area">
       <button id="attach-file-btn" title="Attach file" style="padding:0 14px;font-size:1.5em;line-height:1;">+</button>
       <button id="gif-btn" title="GIFs" style="padding:0 12px;">🎬</button>
-      <textarea id="msg" placeholder="Type your message..."></textarea>
+      <textarea id="msg" placeholder="Type a message or paste code — it will be detected locally..."></textarea>
       <button id="send">Send</button>
       <button id="code">Code</button>
       <select id="code-lang" >
-        <option value="plaintext">📋 None</option>
+        <option value="auto">✨ Auto-detect</option>
+        <option value="plaintext">📋 Plain text</option>
         <option value="php">🐘 PHP</option>
         <option value="python">🐍 Python</option>
         <option value="javascript">✨ JavaScript</option>
@@ -275,6 +271,22 @@
   
   
 </div>
+
+<div id="app-dialog" class="app-dialog" hidden role="dialog" aria-modal="true">
+  <div class="app-dialog-card">
+    <h2 id="app-dialog-title">LAN Chat</h2>
+    <p id="app-dialog-message"></p>
+    <input id="app-dialog-input" hidden type="url" placeholder="https://example.com">
+    <div class="app-dialog-actions"><button id="app-dialog-cancel" type="button">Cancel</button><button id="app-dialog-confirm" type="button">OK</button></div>
+  </div>
+</div>
+
+<aside id="private-chat" class="private-chat" hidden aria-live="polite">
+  <header><strong id="private-chat-title">Private chat</strong><button id="private-chat-close" type="button" aria-label="Close private chat">&times;</button></header>
+  <div id="private-chat-tabs" class="private-chat-tabs"></div>
+  <div id="private-chat-messages" class="private-chat-messages"></div>
+  <form id="private-chat-form"><textarea id="private-chat-input" placeholder="Write a private message..." maxlength="2000"></textarea><button type="submit">Send</button></form>
+</aside>
   
 <div id="image-modal" class="image-modal">
   <span class="close-modal" onclick="closeImageModal()">✖</span>
